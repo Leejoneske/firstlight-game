@@ -87,7 +87,7 @@ func _add_face(tool: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
 		normal = -normal
 	var center := (a + b + c) / 3.0
 	var jitter := (hash(Vector2i(int(center.x * 7.0), int(center.z * 7.0))) % 100) / 100.0 - 0.5
-	var color := Color(0.84, 0.66, 0.43)
+	var color := Color(0.78, 0.6, 0.4)
 	if grove_rect.has_point(Vector2(center.x, center.z)):
 		color = Color(0.45, 0.62, 0.3)
 	if normal.y < 0.8 or center.y > 6.0:

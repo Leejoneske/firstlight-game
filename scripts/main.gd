@@ -126,7 +126,8 @@ func _build_environment() -> void:
 	_environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	_environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	_environment.fog_enabled = true
-	_environment.fog_density = 0.008
+	_environment.fog_density = 0.0018
+	_environment.fog_sky_affect = 0.3
 	var world_environment := WorldEnvironment.new()
 	world_environment.environment = _environment
 	add_child(world_environment)
@@ -340,7 +341,7 @@ func _update_lighting() -> void:
 	var elevation := (t - 0.25) * TAU  # 0 at dawn, PI/2 at noon, PI at dusk
 	var daylight := clampf(sin(elevation) * 3.0, 0.0, 1.0)
 	_sun.rotation = Vector3(-elevation, 0.5, 0.0)
-	_sun.light_energy = daylight * 1.15
+	_sun.light_energy = daylight * 0.9
 	_sun.light_color = _palette.sun.sample(t)
 	_sun.visible = daylight > 0.0
 	var darkness := 1.0 - daylight
@@ -352,7 +353,7 @@ func _update_lighting() -> void:
 	_sky_material.ground_horizon_color = _palette.sky_horizon.sample(t).darkened(0.2)
 	_sky_material.ground_bottom_color = _palette.sky_top.sample(t).darkened(0.4)
 	_environment.ambient_light_color = _palette.ambient.sample(t)
-	_environment.ambient_light_energy = 0.55 + daylight * 0.25
+	_environment.ambient_light_energy = 0.45 + daylight * 0.15
 	_environment.fog_light_color = _palette.sky_horizon.sample(t)
 
 

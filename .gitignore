@@ -15,3 +15,4 @@ Thumbs.db
 # Local screenshot tooling
 _shots.*
 export_credentials.cfg
+_probe.*

@@ -20,6 +20,7 @@ static func vertex_color_material() -> StandardMaterial3D:
 	if _vertex_color_material == null:
 		_vertex_color_material = StandardMaterial3D.new()
 		_vertex_color_material.vertex_color_use_as_albedo = true
+		_vertex_color_material.vertex_color_is_srgb = true
 		_vertex_color_material.roughness = 0.95
 	return _vertex_color_material
 

@@ -46,10 +46,13 @@ func cycle_mode() -> void:
 
 func set_mode(new_mode: Mode) -> void:
 	mode = new_mode
-	if mode == Mode.OVERVIEW:
-		pitch = OVERVIEW_PITCH
-	elif mode == Mode.THIRD_PERSON:
-		pitch = clampf(pitch, -1.2, 0.3)
+	match mode:
+		Mode.THIRD_PERSON:
+			pitch = -0.3
+		Mode.FIRST_PERSON:
+			pitch = -0.1
+		Mode.OVERVIEW:
+			pitch = OVERVIEW_PITCH
 	snap()
 
 
