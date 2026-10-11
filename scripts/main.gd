@@ -51,13 +51,48 @@ func _ready() -> void:
 	_switch_to(0)
 	_apply_camera_mode()
 	_advance_time(0.0)
+	GameState.settings_changed.connect(_apply_settings)
+	_apply_settings()
+	if GameState.skip_title:
+		_start_game()
+	else:
+		# Show the title over a slowly turning view of the badlands
+		get_tree().paused = true
+		_rig.showcase = true
+		_hud.show_title()
+
+
+func _start_game() -> void:
+	get_tree().paused = false
+	_rig.showcase = false
+	_rig.set_mode(_rig.mode)
 	GameState.notify("The ground keeps shaking... Gather food before nightfall!")
+
+
+func _on_pause_toggled(paused: bool) -> void:
+	get_tree().paused = paused
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _restart() -> void:
+	get_tree().paused = false
+	GameState.skip_title = true
+	GameState.reset_run()
+	get_tree().reload_current_scene()
+
+
+## Applies saved settings. Lower graphics drop shadows and grass and render at a lower
+## resolution, which runs much more smoothly on older phones.
+func _apply_settings() -> void:
+	_sun.shadow_enabled = GameState.high_graphics
+	_scenery.set_ground_cover_visible(GameState.high_graphics)
+	get_viewport().scaling_3d_scale = 1.0 if GameState.high_graphics else 0.7
 
 
 func _process(delta: float) -> void:
 	if not _retreating:
 		_advance_time(delta)
-	_rig.rotate_by_pixels(_hud.look_pad.take_delta(), _rig.touch_sensitivity)
+	_rig.rotate_by_pixels(_hud.look_pad.take_delta(), _rig.touch_sensitivity * GameState.look_sensitivity)
 	_read_movement()
 	_update_camp_flags()
 	_update_boar_respawns(delta)
@@ -68,11 +103,8 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		_rig.rotate_by_pixels((event as InputEventMouseMotion).relative, _rig.mouse_sensitivity)
-		return
-	if event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
-		_rig.rotate_by_pixels((event as InputEventMouseMotion).relative, _rig.mouse_sensitivity)
+	if event is InputEventMouseMotion and (Input.mouse_mode == Input.MOUSE_MODE_CAPTURED or Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)):
+		_rig.rotate_by_pixels((event as InputEventMouseMotion).relative, _rig.mouse_sensitivity * GameState.look_sensitivity)
 		return
 	if event is InputEventMouseButton and event.pressed:
 		var button := event as InputEventMouseButton
@@ -88,8 +120,6 @@ func _unhandled_input(event: InputEvent) -> void:
 					Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		return
 
-	if event.is_action_pressed("free_mouse"):
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if event.is_action_pressed("toggle_touch_ui"):
 		_hud.toggle_touch_ui()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -204,6 +234,7 @@ func _spawn_family() -> void:
 	krag.follow_side = -1.0
 	krag.bulk = 1.3
 	krag.hair_style = "beard"
+	krag.eye_color = Color(0.3, 0.2, 0.1)
 
 	var zee := FamilyMember.new()
 	zee.member_name = "Zee"
@@ -220,6 +251,7 @@ func _spawn_family() -> void:
 	zee.follow_side = 1.0
 	zee.bulk = 0.9
 	zee.hair_style = "mane"
+	zee.eye_color = Color(0.25, 0.5, 0.3)
 
 	for i in 2:
 		var member: FamilyMember = [krag, zee][i]
@@ -337,6 +369,9 @@ func _build_hud() -> void:
 	_hud.eat_pressed.connect(_do_eat)
 	_hud.switch_next_pressed.connect(_switch_next)
 	_hud.view_pressed.connect(_cycle_camera)
+	_hud.start_pressed.connect(_start_game)
+	_hud.pause_toggled.connect(_on_pause_toggled)
+	_hud.restart_pressed.connect(_restart)
 	GameState.message.connect(_hud.toast)
 	GameState.inventory_changed.connect(_hud.update_inventory)
 	_hud.update_inventory()
@@ -441,6 +476,8 @@ func _flat_distance(a: Vector3, b: Vector3) -> float:
 # --- Camera ---------------------------------------------------------------
 
 func _cycle_camera() -> void:
+	if get_tree().paused:
+		return
 	_rig.cycle_mode()
 	_apply_camera_mode()
 	GameState.notify(CameraRig.MODE_NAMES[_rig.mode])
@@ -517,7 +554,7 @@ func _hint_text() -> String:
 
 
 func _do_action() -> void:
-	if _retreating or active == null or active.is_down or active.action_cooldown > 0.0:
+	if get_tree().paused or _retreating or active == null or active.is_down or active.action_cooldown > 0.0:
 		return
 	var target := _find_target()
 	if target.is_empty():
@@ -543,7 +580,7 @@ func _do_action() -> void:
 
 
 func _do_eat() -> void:
-	if _retreating or active == null or active.is_down:
+	if get_tree().paused or _retreating or active == null or active.is_down:
 		return
 	if active.hunger > FamilyMember.MAX_HUNGER - 5.0:
 		GameState.notify("%s isn't hungry." % active.member_name)
@@ -567,7 +604,7 @@ func _float_text(point: Vector3, text: String, color: Color) -> void:
 # --- Switching and getting knocked out -----------------------------------
 
 func _switch_to(index: int) -> void:
-	if _retreating or index < 0 or index >= members.size():
+	if (get_tree().paused and active != null) or _retreating or index < 0 or index >= members.size():
 		return
 	var member := members[index]
 	if member.is_down:

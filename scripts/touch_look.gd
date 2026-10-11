@@ -1,9 +1,10 @@
 class_name TouchLook
 extends Control
-## Drag a finger on the right side of the screen to turn the camera.
+## Drag a finger on the side of the screen opposite the movement stick to turn the camera.
 ## Touches that start on a button are left alone.
 
 var hud: Hud  ## Used to ignore touches that land on the on-screen buttons.
+var on_right := false  ## Which side of the screen turns the camera.
 
 var _touch_index := -1
 var _pending := Vector2.ZERO
@@ -43,4 +44,5 @@ func release() -> void:
 
 func _in_zone(point: Vector2) -> bool:
 	var view := get_viewport_rect().size
-	return point.x > view.x * 0.45 and point.y > 110.0 and not hud.is_over_button(point)
+	var on_side := point.x > view.x * 0.45 if on_right else point.x < view.x * 0.55
+	return on_side and point.y > 110.0 and not hud.is_over_button(point)

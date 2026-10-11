@@ -4,6 +4,9 @@ extends Node
 
 signal inventory_changed
 signal message(text: String)
+signal settings_changed
+
+const SETTINGS_PATH := "user://settings.cfg"
 
 const ITEM_NAMES := {
 	"berries": "Berries",
@@ -18,12 +21,44 @@ const MESSAGE_REPEAT_DELAY := 2.0
 
 var inventory := {"berries": 0, "fruit": 0, "meat": 0, "sticks": 0, "stones": 0}
 
+# Player settings, saved between sessions
+var move_stick_on_right := false  ## Touch: true puts the movement stick on the right and the buttons on the left.
+var look_sensitivity := 1.0  ## Multiplier for mouse, touch and stick camera turning.
+var high_graphics := true  ## Shadows, grass and full resolution. Off is smoother on older phones.
+
+var skip_title := false  ## Tests and tools start the game straight away.
+
 var _last_message := ""
 var _last_message_time := -100.0
 
 
 func _ready() -> void:
 	_setup_input()
+	load_settings()
+
+
+func load_settings() -> void:
+	var config := ConfigFile.new()
+	if config.load(SETTINGS_PATH) != OK:
+		return
+	move_stick_on_right = config.get_value("controls", "move_stick_on_right", move_stick_on_right)
+	look_sensitivity = config.get_value("controls", "look_sensitivity", look_sensitivity)
+	high_graphics = config.get_value("graphics", "high", high_graphics)
+
+
+func save_settings() -> void:
+	var config := ConfigFile.new()
+	config.set_value("controls", "move_stick_on_right", move_stick_on_right)
+	config.set_value("controls", "look_sensitivity", look_sensitivity)
+	config.set_value("graphics", "high", high_graphics)
+	config.save(SETTINGS_PATH)
+	settings_changed.emit()
+
+
+func reset_run() -> void:
+	for item: String in inventory:
+		inventory[item] = 0
+	inventory_changed.emit()
 
 
 func add_item(item: String, amount: int) -> void:
@@ -70,6 +105,7 @@ func _setup_input() -> void:
 	_add_action("toggle_touch_ui", [KEY_F2])
 	_add_action("camera_mode", [KEY_V], [JOY_BUTTON_Y])
 	_add_action("free_mouse", [KEY_ESCAPE])
+	_add_action("pause", [KEY_P], [JOY_BUTTON_START])
 	_add_action("look_left", [])
 	_add_action("look_right", [])
 	_add_action("look_up", [])

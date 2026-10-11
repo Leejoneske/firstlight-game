@@ -20,7 +20,9 @@ What's in this build:
 - **Knockouts:** a downed member can be helped up by the other one. If everyone goes down, the family wakes up at the cave next morning and loses half their supplies.
 - **Touch controls** (joystick plus buttons), **keyboard** and **gamepad**
 
-All models are placeholders built from simple shapes in code, so the gameplay can be tested before real art goes in. Real models can later be made in Blender: Godot opens `.blend` and `.glb` files directly.
+All models are placeholders built from simple shapes in code. To replace any of them with your own Blender model, drop a `.glb` file into `models/`. See **[docs/ART_GUIDE.md](docs/ART_GUIDE.md)** for names, sizes and export settings.
+
+Also included: a title screen, and a pause menu with settings that are saved: which side the movement stick is on, look speed, and graphics quality (*Smooth* for older phones).
 
 ## Play it on your computer
 
@@ -34,13 +36,14 @@ The first time you open the project, Godot spends a few seconds importing. That'
 
 | Action | Keyboard & mouse | Gamepad | Phone |
 |---|---|---|---|
-| Move | WASD / arrow keys | Left stick / D-pad | Drag on the left side of the screen |
-| Look around | Move the mouse (click the game first; Esc frees the mouse) | Right stick | Drag on the right side of the screen |
+| Move | WASD / arrow keys | Left stick / D-pad | Drag on the left side of the screen (can be swapped in the pause menu) |
+| Look around | Move the mouse (click the game first) | Right stick | Drag on the other side of the screen |
 | Gather / attack / help up | Space, E or left click | A | **ACT** button |
 | Eat | F | X | **EAT** button |
 | Switch member | 1, 2 or Tab | Right shoulder | **SWAP** button or tap a portrait |
 | Change camera view | V | Y | **VIEW** button |
 | Zoom (third person) | Mouse wheel | | |
+| Pause and settings | Esc or P | Start | **II** button |
 | Test touch controls on PC | F2 (then use the mouse) | | |
 
 ## Play it on an Android phone
@@ -82,7 +85,10 @@ scripts/
   member_card.gd     A family member's portrait card
   touch_stick.gd     Touch joystick (move)
   touch_look.gd      Touch look pad (camera)
+  scenery.gd         Rock spires, arch, grass, bones, clouds, the far Firstlight peak
+  model_library.gd   Loads Blender models from models/ when they exist
   mesh_util.gd, floating_text.gd
 tests/               Automated smoke test
 docs/DESIGN.md       Game design plan
+docs/ART_GUIDE.md    How to make models in Blender for the game
 ```

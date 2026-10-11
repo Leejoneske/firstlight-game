@@ -10,6 +10,7 @@ var _failures := 0
 
 
 func _ready() -> void:
+	GameState.skip_title = true
 	_main = load("res://scenes/main.tscn").instantiate()
 	add_child(_main)
 	await _frames(5)

@@ -1,12 +1,14 @@
 class_name TouchStick
 extends Control
-## Floating thumb-stick for touch screens: put a thumb down anywhere in the
-## lower-left area and drag. Read `output` for the direction (length 0 to 1).
+## Floating thumb-stick for touch screens: put a thumb down anywhere in the lower
+## corner on the stick's side and drag. Read `output` for the direction (length 0 to 1).
 
 const RADIUS := 80.0
 const DEADZONE := 0.15
 
 var output := Vector2.ZERO
+var on_right := true  ## Which side of the screen the stick lives on.
+var hud: Hud  ## Used to ignore touches that land on the on-screen buttons.
 
 var _touch_index := -1
 var _center := Vector2.ZERO
@@ -45,7 +47,8 @@ func release() -> void:
 
 func _in_zone(point: Vector2) -> bool:
 	var view := get_viewport_rect().size
-	return point.x < view.x * 0.45 and point.y > view.y * 0.35
+	var on_side := point.x > view.x * 0.55 if on_right else point.x < view.x * 0.45
+	return on_side and point.y > view.y * 0.35 and not hud.is_over_button(point)
 
 
 func _move_knob(point: Vector2) -> void:
@@ -63,7 +66,8 @@ func _draw() -> void:
 	var alpha := 0.5
 	if _touch_index == -1:
 		# Show a faint stick at rest so players know where to put their thumb
-		center = Vector2(150, get_viewport_rect().size.y - 150)
+		var view := get_viewport_rect().size
+		center = Vector2(view.x - 160.0 if on_right else 160.0, view.y - 160.0)
 		knob = center
 		alpha = 0.25
 	draw_circle(center, RADIUS, Color(0, 0, 0, alpha * 0.5))

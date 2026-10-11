@@ -14,6 +14,11 @@ const DATA := {
 	Kind.TALL_TREE: {"item": "fruit", "amount": 2, "uses": 2, "regrow": 90.0, "radius": 0.4, "solid": true, "verb": "Climb for fruit"},
 }
 
+const MODEL_NAMES := {
+	Kind.BERRY_BUSH: "berry_bush", Kind.TREE: "tree", Kind.ROCK: "rock",
+	Kind.BOULDER: "boulder", Kind.TALL_TREE: "tall_tree",
+}
+
 ## Meshes are built once per kind and shared by every resource of that kind.
 static var _mesh_cache := {}
 
@@ -49,6 +54,11 @@ func _ready() -> void:
 	_visual.rotation.y = randf() * TAU
 	_visual.scale = Vector3.ONE * randf_range(0.9, 1.12)
 	add_child(_visual)
+	# An artist-made model (models/berry_bush.glb etc.) replaces the placeholder shapes
+	var custom := ModelLibrary.instantiate(MODEL_NAMES[kind])
+	if custom:
+		_visual.add_child(custom)
+		return
 	_main_mesh = MeshInstance3D.new()
 	_main_mesh.mesh = _cached_mesh("main")
 	_main_mesh.visibility_range_end = 75.0
@@ -128,6 +138,8 @@ func _process(delta: float) -> void:
 
 ## Shows how much is left: berries and fruit disappear as they're picked.
 func _update_look() -> void:
+	if _extra_mesh == null:
+		return
 	match kind:
 		Kind.BERRY_BUSH, Kind.TALL_TREE:
 			_extra_mesh.mesh = _cached_mesh("fruit_%d" % uses_left) if uses_left > 0 else null

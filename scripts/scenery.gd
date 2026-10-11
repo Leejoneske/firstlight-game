@@ -19,6 +19,7 @@ var is_free: Callable  ## func(point: Vector2, radius: float) -> bool, for spots
 var _rng := RandomNumberGenerator.new()
 var _taken: Array[Vector3] = []  ## x, z and radius of scenery already placed.
 var _clouds: Node3D
+var _ground_cover: Array[Node3D] = []
 var _beacon: MeshInstance3D
 
 
@@ -46,6 +47,11 @@ func build_landmarks(seed_value: int) -> void:
 func build_ground_cover() -> void:
 	_add_grass()
 	_add_pebbles()
+
+
+func set_ground_cover_visible(enabled: bool) -> void:
+	for node in _ground_cover:
+		node.visible = enabled
 
 
 ## True if a spot (x, z) with the given radius overlaps a landmark.
@@ -299,6 +305,7 @@ func _add_scatter(mesh: Mesh, transforms: Array[Transform3D], colors: Array[Colo
 		tiles[key][1].append(colors[i])
 	for key: Vector2i in tiles:
 		var instance := _add_multimesh(mesh, tiles[key][0], tiles[key][1])
+		_ground_cover.append(instance)
 		instance.visibility_range_end = visible_range
 		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 

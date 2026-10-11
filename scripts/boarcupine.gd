@@ -47,6 +47,8 @@ var _alert_tag: Label3D
 var _stars: Node3D
 var _body_parts: Array[MeshInstance3D] = []
 var _was_flashing := false
+var _custom_model: Node3D
+var _anim: AnimationPlayer
 
 
 func _ready() -> void:
@@ -221,6 +223,13 @@ func _build_model() -> void:
 	var brown := Color(0.48, 0.33, 0.22)
 	_model = Node3D.new()
 	add_child(_model)
+	_add_effects()
+	# An artist-made model (models/boarcupine.glb) replaces the placeholder shapes
+	_custom_model = ModelLibrary.instantiate("boarcupine")
+	if _custom_model:
+		_model.add_child(_custom_model)
+		_anim = ModelLibrary.find_animation_player(_custom_model)
+		return
 	for corner in [Vector3(-0.22, 0.45, -0.38), Vector3(0.22, 0.45, -0.38), Vector3(-0.22, 0.45, 0.38), Vector3(0.22, 0.45, 0.38)]:
 		var hip := Node3D.new()
 		hip.position = corner
@@ -248,6 +257,8 @@ func _build_model() -> void:
 	spike_mesh.mesh = MeshUtil.combine(spikes)
 	_model.add_child(spike_mesh)
 
+
+func _add_effects() -> void:
 	_alert_tag = MeshUtil.label("!", 96, Color(1, 0.3, 0.2))
 	_alert_tag.position.y = 1.8
 	_alert_tag.visible = false
@@ -264,16 +275,36 @@ func _animate(delta: float) -> void:
 	_model.rotation.y = atan2(-_facing.x, -_facing.z)
 	var speed := Vector2(velocity.x, velocity.z).length()
 	_walk_phase += delta * speed * 3.0
+	if _custom_model:
+		_animate_custom_model(speed)
+	else:
+		_animate_shapes(speed)
+	_alert_tag.visible = state == State.ALERT
+	_stars.visible = state == State.DIZZY
+	_stars.rotation.y += delta * 5.0
+	_model.position.x = sin(Time.get_ticks_msec() * 0.06) * 0.04 if state == State.ALERT else 0.0
+
+
+## Plays the artist's animations: idle, walk, alert, charge (or run) and dizzy.
+func _animate_custom_model(speed: float) -> void:
+	match state:
+		State.ALERT:
+			ModelLibrary.play(_anim, ["alert", "idle"])
+		State.CHARGE:
+			ModelLibrary.play(_anim, ["charge", "run", "walk"])
+		State.DIZZY:
+			ModelLibrary.play(_anim, ["dizzy", "idle"])
+		_:
+			ModelLibrary.play(_anim, ["walk", "idle"] if speed > 0.3 else ["idle"], maxf(speed / 1.6, 0.5))
+
+
+func _animate_shapes(speed: float) -> void:
 	var swing := sin(_walk_phase) * clampf(speed / 3.0, 0.0, 1.0) * 0.7
 	_legs[0].rotation.x = swing
 	_legs[3].rotation.x = swing
 	_legs[1].rotation.x = -swing
 	_legs[2].rotation.x = -swing
 
-	_alert_tag.visible = state == State.ALERT
-	_model.position.x = sin(Time.get_ticks_msec() * 0.06) * 0.04 if state == State.ALERT else 0.0
-	_stars.visible = state == State.DIZZY
-	_stars.rotation.y += delta * 5.0
 	var angry := state == State.ALERT or state == State.CHARGE
 	for eye in _eyes:
 		eye.material_override = MeshUtil.material(Color(0.95, 0.2, 0.15) if angry else Color(0.08, 0.05, 0.03))

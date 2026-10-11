@@ -30,9 +30,14 @@ func _ready() -> void:
 	for i in 28:
 		var offset := Vector3.FORWARD.rotated(Vector3.UP, i * TAU / 28.0) * radius
 		parts.append([MeshUtil.sphere(0.18, 5, 3), Color(0.9, 0.86, 0.78), MeshUtil.xf(offset + Vector3(0, 0.03, 0), Vector3(1.2, 0.5, 1.0))])
-	var model := MeshInstance3D.new()
-	model.mesh = MeshUtil.combine(parts)
-	add_child(model)
+	# An artist-made model (models/cave.glb) replaces the placeholder shapes
+	var custom := ModelLibrary.instantiate("cave")
+	if custom:
+		add_child(custom)
+	else:
+		var model := MeshInstance3D.new()
+		model.mesh = MeshUtil.combine(parts)
+		add_child(model)
 
 	var body := StaticBody3D.new()
 	body.collision_layer = 1

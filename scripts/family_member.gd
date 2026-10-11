@@ -27,7 +27,8 @@ const TELEPORT_DISTANCE := 25.0  ## Followers this far behind catch up instantly
 @export var size_scale := 1.0
 @export var follow_side := 1.0
 @export var bulk := 1.0  ## Build: above 1 is broader and stockier.
-@export var hair_style := ""  ## "beard", "mane" or "" for short hair.  ## Which side of the leader to walk on (-1 left, 1 right).
+@export var hair_style := ""  ## "beard", "mane" or "" for short hair.
+@export var eye_color := Color(0.35, 0.22, 0.12)  ## Which side of the leader to walk on (-1 left, 1 right).
 
 var health := 0.0
 var hunger := MAX_HUNGER
@@ -50,6 +51,11 @@ var _body: Node3D
 var _legs: Array[Node3D] = []
 var _arms: Array[Node3D] = []
 var _head: Node3D
+var _eyelids: Array[MeshInstance3D] = []
+var _custom_model: Node3D
+var _anim: AnimationPlayer
+var _blink_meshes: Array[MeshInstance3D] = []
+var _blink_timer := 2.0
 var _idle_time := 0.0
 var _skin_parts: Array[MeshInstance3D] = []
 var _name_tag: Label3D
@@ -176,6 +182,14 @@ func _build_model() -> void:
 	_model = Node3D.new()
 	_model.scale = Vector3.ONE * size_scale
 	add_child(_model)
+	_add_tags()
+	# An artist-made model (models/krag.glb etc.) replaces the placeholder shapes
+	_custom_model = ModelLibrary.instantiate(member_name.to_lower())
+	if _custom_model:
+		_model.add_child(_custom_model)
+		_anim = ModelLibrary.find_animation_player(_custom_model)
+		_blink_meshes = ModelLibrary.find_blink_meshes(_custom_model)
+		return
 	_body = Node3D.new()
 	_model.add_child(_body)
 	var w := bulk  # Broader shoulders and chest for heavier builds
@@ -216,20 +230,17 @@ func _build_model() -> void:
 
 	# Head (the model faces -Z)
 	var head := Node3D.new()
-	head.position = Vector3(0, 1.66, 0)
+	head.position = Vector3(0, 1.68, 0)
+	head.scale = Vector3.ONE * 1.12  # Big cartoon heads read better on small screens
 	_body.add_child(head)
 	_head = head
 	_skin_parts.append(MeshUtil.add_part(head, MeshUtil.sphere(0.2, 10, 6), skin_color, Vector3.ZERO, Vector3(1.0, 1.05, 1.0)))
 	_skin_parts.append(MeshUtil.add_part(head, MeshUtil.sphere(0.16, 8, 5), skin_color, Vector3(0, -0.09, -0.04), Vector3(1.05 * w, 0.75, 1.0)))
-	MeshUtil.add_part(head, MeshUtil.sphere(0.055, 7, 4), skin_color.darkened(0.1), Vector3(0, -0.02, -0.2), Vector3(1.1, 0.9, 1.0))
-	for side in [-1.0, 1.0]:
-		MeshUtil.add_part(head, MeshUtil.sphere(0.045, 7, 4), Color(0.97, 0.95, 0.9), Vector3(side * 0.075, 0.04, -0.17))
-		MeshUtil.add_part(head, MeshUtil.sphere(0.024, 6, 3), Color(0.12, 0.08, 0.05), Vector3(side * 0.075, 0.04, -0.205))
-		MeshUtil.add_part(head, MeshUtil.capsule(0.022, 0.12), hair_color.darkened(0.2), Vector3(side * 0.08, 0.11, -0.18), Vector3.ONE, Vector3(0, 0, PI / 2.0 + side * 0.25))
-		_skin_parts.append(MeshUtil.add_part(head, MeshUtil.sphere(0.05, 6, 3), skin_color, Vector3(side * 0.2, 0.0, 0), Vector3(0.5, 1.0, 0.8)))
-	MeshUtil.add_part(head, MeshUtil.box(Vector3(0.1, 0.018, 0.02)), Color(0.35, 0.15, 0.12), Vector3(0, -0.12, -0.18))
+	_build_face(head)
 	_build_hair(head)
 
+
+func _add_tags() -> void:
 	_name_tag = MeshUtil.label(member_name, 26)
 	_name_tag.position.y = 2.25 * size_scale
 	add_child(_name_tag)
@@ -239,13 +250,52 @@ func _build_model() -> void:
 	add_child(_sleep_tag)
 
 
+## A clear cartoon face: big eyes with coloured irises and highlights, eyelids that
+## blink, heavy brows, a broad nose, a smiling mouth and rosy cheeks.
+func _build_face(head: Node3D) -> void:
+	var lip := skin_color.darkened(0.35)
+	for side in [-1.0, 1.0]:
+		var eye := Node3D.new()
+		eye.position = Vector3(side * 0.078, 0.035, -0.168)
+		head.add_child(eye)
+		MeshUtil.add_part(eye, MeshUtil.sphere(0.055, 10, 6), Color(0.98, 0.97, 0.94), Vector3.ZERO, Vector3(1.0, 1.15, 0.6))
+		MeshUtil.add_part(eye, MeshUtil.sphere(0.032, 8, 5), eye_color, Vector3(0, 0, -0.026), Vector3(1, 1, 0.5))
+		MeshUtil.add_part(eye, MeshUtil.sphere(0.018, 6, 4), Color(0.05, 0.03, 0.02), Vector3(0, 0, -0.04), Vector3(1, 1, 0.5))
+		MeshUtil.add_part(eye, MeshUtil.sphere(0.009, 5, 3), Color.WHITE, Vector3(0.012, 0.014, -0.046))
+		# Eyelid: rests above the eye and slides down to blink
+		var lid := MeshUtil.add_part(eye, MeshUtil.sphere(0.062, 10, 6), skin_color.darkened(0.04), Vector3.ZERO, Vector3(1.08, 0.3, 0.72))
+		_skin_parts.append(lid)
+		_eyelids.append(lid)
+		# Brow
+		MeshUtil.add_part(head, MeshUtil.capsule(0.03, 0.15), hair_color.darkened(0.25),
+			Vector3(side * 0.08, 0.13, -0.175), Vector3(1.0, 1.0, 0.8), Vector3(0.2, 0, PI / 2.0 - side * 0.18))
+		# Cheek
+		MeshUtil.add_part(head, MeshUtil.sphere(0.045, 7, 4), skin_color.lerp(Color(0.95, 0.45, 0.4), 0.35),
+			Vector3(side * 0.12, -0.05, -0.15), Vector3(1.0, 0.7, 0.5))
+	# Broad nose
+	MeshUtil.add_part(head, MeshUtil.sphere(0.05, 8, 5), skin_color.darkened(0.08), Vector3(0, -0.025, -0.205), Vector3(1.3, 0.9, 1.0))
+	for side in [-1.0, 1.0]:
+		MeshUtil.add_part(head, MeshUtil.sphere(0.025, 6, 3), skin_color.darkened(0.12), Vector3(side * 0.04, -0.04, -0.2))
+	# Smiling mouth: a dark curve with a lighter lower lip
+	for i in 5:
+		var t := (i - 2) / 2.0
+		MeshUtil.add_part(head, MeshUtil.sphere(0.016, 6, 3), Color(0.3, 0.1, 0.08),
+			Vector3(t * 0.05, -0.105 + t * t * 0.018, -0.208 + absf(t) * 0.012), Vector3(1.6, 1.0, 0.8))
+	MeshUtil.add_part(head, MeshUtil.sphere(0.03, 7, 4), lip, Vector3(0, -0.127, -0.2), Vector3(1.4, 0.45, 0.6))
+	# Ears
+	for side in [-1.0, 1.0]:
+		_skin_parts.append(MeshUtil.add_part(head, MeshUtil.sphere(0.05, 6, 3), skin_color, Vector3(side * 0.2, 0.0, 0), Vector3(0.5, 1.0, 0.8)))
+
+
 func _build_hair(head: Node3D) -> void:
 	match hair_style:
 		"beard":
 			# Short bushy hair and a thick beard
 			MeshUtil.add_part(head, MeshUtil.sphere(0.22, 9, 5), hair_color, Vector3(0, 0.08, 0.04), Vector3(1.05, 0.85, 1.05))
-			MeshUtil.add_part(head, MeshUtil.sphere(0.2, 8, 5), hair_color, Vector3(0, -0.17, -0.06), Vector3(1.1, 0.9, 0.85))
-			MeshUtil.add_part(head, MeshUtil.sphere(0.12, 7, 4), hair_color, Vector3(0, -0.3, -0.1), Vector3(1.0, 1.0, 0.8))
+			MeshUtil.add_part(head, MeshUtil.sphere(0.2, 8, 5), hair_color, Vector3(0, -0.23, -0.05), Vector3(1.1, 0.85, 0.85))
+			MeshUtil.add_part(head, MeshUtil.sphere(0.12, 7, 4), hair_color, Vector3(0, -0.34, -0.09), Vector3(1.0, 1.0, 0.8))
+			for side in [-1.0, 1.0]:
+				MeshUtil.add_part(head, MeshUtil.sphere(0.08, 7, 4), hair_color, Vector3(side * 0.13, -0.12, -0.08))
 			# Tooth necklace
 			for i in 7:
 				var angle := PI + 0.35 + i * 0.4
@@ -256,15 +306,49 @@ func _build_hair(head: Node3D) -> void:
 			for blob in [Vector4(0, 0.1, 0.06, 0.24), Vector4(-0.17, 0.0, 0.1, 0.17), Vector4(0.17, 0.0, 0.1, 0.17),
 					Vector4(0, -0.05, 0.2, 0.2), Vector4(-0.12, -0.2, 0.18, 0.15), Vector4(0.12, -0.2, 0.18, 0.15), Vector4(0, -0.3, 0.2, 0.14)]:
 				MeshUtil.add_part(head, MeshUtil.sphere(blob.w, 8, 5), hair_color, Vector3(blob.x, blob.y, blob.z))
-			MeshUtil.add_part(head, MeshUtil.sphere(0.12, 7, 4), hair_color, Vector3(0, 0.17, -0.1), Vector3(1.4, 0.6, 1.0))
+			MeshUtil.add_part(head, MeshUtil.sphere(0.12, 7, 4), hair_color, Vector3(0, 0.2, -0.07), Vector3(1.4, 0.55, 1.0))
 			MeshUtil.add_part(head, MeshUtil.cylinder(0.025, 0.025, 0.32, 5), Color(0.95, 0.92, 0.82), Vector3(0.12, 0.2, 0.08), Vector3.ONE, Vector3(0.3, 0, 1.2))
 		_:
 			MeshUtil.add_part(head, MeshUtil.sphere(0.215, 9, 5), hair_color, Vector3(0, 0.06, 0.05), Vector3(1.05, 0.9, 1.0))
 
 
+## Plays the artist's animations: idle, walk, run, attack (or gather) and down.
+func _animate_custom_model(delta: float, speed: float) -> void:
+	var lying := false
+	if is_down:
+		lying = not ModelLibrary.play(_anim, ["down"])
+	elif _attack_anim > 0.0:
+		ModelLibrary.play(_anim, ["attack", "gather"])
+	elif speed > 0.3:
+		ModelLibrary.play(_anim, ["run", "walk"] if speed > 5.5 else ["walk", "run"], speed / 3.5)
+	else:
+		ModelLibrary.play(_anim, ["idle"])
+	_model.rotation.z = PI / 2.0 if lying else 0.0
+	_model.position.y = 0.3 * size_scale if lying else 0.0
+	_blink(delta)
+
+
+## Every few seconds the eyelids close for a moment.
+func _blink(delta: float) -> void:
+	_blink_timer -= delta
+	if _blink_timer < -0.14:
+		_blink_timer = randf_range(2.0, 5.0)
+	var closed := 1.0 - absf(_blink_timer + 0.07) / 0.07 if _blink_timer < 0.0 else 0.0
+	for mesh in _blink_meshes:
+		mesh.set_blend_shape_value(mesh.find_blend_shape_by_name("blink"), closed)
+	for lid in _eyelids:
+		lid.visible = closed > 0.0
+		var height := lerpf(0.2, 1.08, closed)
+		lid.scale.y = height
+		lid.position.y = 0.062 * (1.0 - height)
+
+
 func _animate(delta: float, speed: float) -> void:
 	_model.rotation.y = atan2(-facing.x, -facing.z)
 	_sleep_tag.visible = is_down
+	if _custom_model:
+		_animate_custom_model(delta, speed)
+		return
 	if is_down:
 		_model.rotation.z = PI / 2.0
 		_model.position.y = 0.3 * size_scale
@@ -289,6 +373,7 @@ func _animate(delta: float, speed: float) -> void:
 	_body.scale = Vector3(1.0 + breath * 0.012, 1.0 + breath * 0.008, 1.0 + breath * 0.012)
 	_head.rotation.x = breath * 0.04
 	_head.rotation.y = sin(_idle_time * 0.5) * 0.15 * (1.0 - clampf(speed, 0.0, 1.0))
+	_blink(delta)
 
 	var flashing := _hurt_flash > 0.0 and int(_hurt_flash * 20.0) % 2 == 0
 	if flashing != _was_flashing:

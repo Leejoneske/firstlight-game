@@ -20,11 +20,13 @@ var third_distance := 6.0
 var mouse_sensitivity := 0.0032
 var touch_sensitivity := 0.006
 
+var showcase := false  ## Slowly circles the target (behind the title screen).
 var camera: Camera3D
 var _arm: SpringArm3D
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS  # Keeps turning behind the title screen
 	_arm = SpringArm3D.new()
 	_arm.collision_mask = 1
 	_arm.margin = 0.3
@@ -86,7 +88,13 @@ func snap() -> void:
 
 
 func _process(delta: float) -> void:
-	var stick := Input.get_vector("look_left", "look_right", "look_up", "look_down")
+	if showcase:
+		yaw += delta * 0.12
+		pitch = -0.22
+		third_distance = 9.0
+	elif get_tree().paused:
+		return
+	var stick := Input.get_vector("look_left", "look_right", "look_up", "look_down") * GameState.look_sensitivity
 	if stick != Vector2.ZERO:
 		yaw -= stick.x * STICK_LOOK_SPEED * delta
 		if mode != Mode.OVERVIEW:
