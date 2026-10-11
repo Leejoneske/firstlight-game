@@ -14,3 +14,6 @@ export_credentials.cfg
 # OS
 .DS_Store
 Thumbs.db
+
+# Local screenshot tooling
+_shots.*

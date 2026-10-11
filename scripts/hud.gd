@@ -6,11 +6,13 @@ signal switch_requested(index: int)
 signal action_pressed
 signal eat_pressed
 signal switch_next_pressed
+signal view_pressed
 
 const TOAST_TIME := 3.5
-const KEYBOARD_HELP := "WASD / arrows: move    Space: act    F: eat    1, 2 or Tab: switch    F2: touch controls"
+const KEYBOARD_HELP := "WASD: move    Mouse: look (click to grab, Esc to free)    Space / click: act    F: eat    1, 2, Tab: switch    V: view    Wheel: zoom    F2: touch"
 
 var joystick: TouchStick
+var look_pad: TouchLook
 var touch_ui := false
 
 var _cards_box: HBoxContainer
@@ -23,6 +25,8 @@ var _fade: ColorRect
 var _action_button: TouchScreenButton
 var _eat_button: TouchScreenButton
 var _switch_button: TouchScreenButton
+var _view_button: TouchScreenButton
+var _crosshair: Control
 var _toast_time := 0.0
 
 
@@ -33,8 +37,14 @@ func _ready() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
+	look_pad = TouchLook.new()
+	look_pad.hud = self
+	root.add_child(look_pad)
 	joystick = TouchStick.new()
 	root.add_child(joystick)
+
+	_crosshair = _make_crosshair()
+	root.add_child(_crosshair)
 
 	_cards_box = HBoxContainer.new()
 	_cards_box.position = Vector2(16, 16)
@@ -77,12 +87,14 @@ func _ready() -> void:
 	_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.add_child(_fade)
 
-	_action_button = _make_touch_button("ACT", 150, Color(0.95, 0.75, 0.3, 0.55))
+	_action_button = _make_touch_button("ACT", 150, Color(0.95, 0.75, 0.3, 0.35))
 	_action_button.pressed.connect(func() -> void: action_pressed.emit())
-	_eat_button = _make_touch_button("EAT", 100, Color(0.9, 0.45, 0.35, 0.55))
+	_eat_button = _make_touch_button("EAT", 100, Color(0.9, 0.45, 0.35, 0.35))
 	_eat_button.pressed.connect(func() -> void: eat_pressed.emit())
-	_switch_button = _make_touch_button("SWAP", 100, Color(0.45, 0.7, 0.95, 0.55))
+	_switch_button = _make_touch_button("SWAP", 100, Color(0.45, 0.7, 0.95, 0.35))
 	_switch_button.pressed.connect(func() -> void: switch_next_pressed.emit())
+	_view_button = _make_touch_button("VIEW", 90, Color(0.75, 0.75, 0.75, 0.35))
+	_view_button.pressed.connect(func() -> void: view_pressed.emit())
 
 	get_viewport().size_changed.connect(_layout_touch_buttons)
 	_layout_touch_buttons()
@@ -114,7 +126,9 @@ func set_touch_ui(enabled: bool) -> void:
 	touch_ui = enabled
 	joystick.visible = enabled
 	joystick.release()
-	for button in [_action_button, _eat_button, _switch_button]:
+	look_pad.visible = enabled
+	look_pad.release()
+	for button in _touch_buttons():
 		button.visible = enabled
 	_help_label.visible = not enabled
 	_hint_label.offset_top = -190 if enabled else -78
@@ -161,6 +175,37 @@ func _layout_touch_buttons() -> void:
 	_action_button.position = view - Vector2(190, 190)
 	_eat_button.position = view - Vector2(330, 140)
 	_switch_button.position = view - Vector2(270, 310)
+	_view_button.position = Vector2(view.x - 110, 120)
+
+
+## True if a screen point is on one of the on-screen buttons.
+func is_over_button(point: Vector2) -> bool:
+	for button in _touch_buttons():
+		var radius: float = (button.shape as CircleShape2D).radius
+		if point.distance_to(button.position + Vector2(radius, radius)) < radius + 10.0:
+			return true
+	return false
+
+
+func set_crosshair(enabled: bool) -> void:
+	_crosshair.visible = enabled
+
+
+func _touch_buttons() -> Array[TouchScreenButton]:
+	return [_action_button, _eat_button, _switch_button, _view_button]
+
+
+func _make_crosshair() -> Control:
+	var dot := ColorRect.new()
+	dot.color = Color(1, 1, 1, 0.8)
+	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dot.set_anchors_preset(Control.PRESET_CENTER)
+	dot.offset_left = -3
+	dot.offset_top = -3
+	dot.offset_right = 3
+	dot.offset_bottom = 3
+	dot.visible = false
+	return dot
 
 
 func _make_label(font_size: int, align: HorizontalAlignment) -> Label:

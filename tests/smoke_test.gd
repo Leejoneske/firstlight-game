@@ -5,7 +5,7 @@ extends Node
 ## Run headless:  godot --headless --path . res://tests/smoke_test.tscn
 ## Exits with code 0 when everything passes, 1 otherwise.
 
-var _main: Node2D
+var _main: Node3D
 var _failures := 0
 
 
@@ -24,11 +24,11 @@ func _run() -> void:
 	_check(_main.members.size() == 2, "two family members spawn")
 	_check(_main.active == krag, "Krag starts as the active member")
 	_check(_main.resources.size() > 80, "resources spawn (%d)" % _main.resources.size())
-	_check(_main.boars.size() == 6, "six Boarcupines spawn")
+	_check(_main.boars.size() == 8, "eight Boarcupines spawn")
 
 	# Keep the boars out of the way until the hunting test
 	for boar: Boarcupine in _main.boars:
-		boar.global_position = Vector2(-1450, 1450)
+		boar.global_position = Vector3(-50, 30, 50)
 
 	# Gathering berries
 	var bush := _find_resource(ResourceNode.Kind.BERRY_BUSH)
@@ -82,7 +82,7 @@ func _run() -> void:
 
 	# Hunting: hitting a calm Boarcupine hurts, hitting a dizzy one is safe
 	var boar: Boarcupine = _main.boars[0]
-	boar.global_position = zee.global_position + Vector2(50, 0)
+	boar.global_position = zee.global_position + Vector3(1.2, 0.1, 0)
 	await _frames(1)
 	var health_before := zee.health
 	zee.action_cooldown = 0.0
@@ -93,7 +93,7 @@ func _run() -> void:
 	while boar.is_alive() and hits < 10:
 		boar.state = Boarcupine.State.DIZZY
 		boar.set("_timer", 5.0)
-		boar.global_position = zee.global_position + Vector2(50, 0)
+		boar.global_position = zee.global_position + Vector3(1.2, 0.1, 0)
 		zee.action_cooldown = 0.0
 		zee.set("_invulnerable", 0.0)
 		_main._do_action()
@@ -105,7 +105,7 @@ func _run() -> void:
 	# A knocked-out member wakes up when helped
 	krag.revive(krag.max_health)
 	krag.set("_invulnerable", 0.0)
-	krag.take_hit(1000.0, krag.global_position + Vector2(10, 0))
+	krag.take_hit(1000.0, krag.global_position + Vector3(1, 0, 0))
 	_check(krag.is_down, "Krag can be knocked out")
 	_stand_next_to(zee, krag)
 	await _frames(2)
@@ -117,13 +117,39 @@ func _run() -> void:
 	var day_before: int = _main.day
 	for member: FamilyMember in _main.members:
 		member.set("_invulnerable", 0.0)
-		member.take_hit(1000.0, member.global_position + Vector2(10, 0))
+		member.take_hit(1000.0, member.global_position + Vector3(1, 0, 0))
 	_check(_main._retreating, "the family retreats when everyone is down")
 	await get_tree().create_timer(2.5).timeout
 	_check(not _main._retreating, "the retreat finishes")
 	_check(not krag.is_down and not zee.is_down, "everyone wakes up")
-	_check(krag.global_position.length() < 200.0, "the family wakes at the cave")
+	_check(Vector2(krag.global_position.x, krag.global_position.z).length() < 6.0, "the family wakes at the cave")
 	_check(_main.day == day_before + 1, "a new day starts after the retreat")
+
+	# Camera views: first person hides the active member's body
+	_main._switch_to(1)
+	_main._rig.set_mode(CameraRig.Mode.FIRST_PERSON)
+	_main._apply_camera_mode()
+	await _frames(2)
+	_check(not zee.get("_model").visible and krag.get("_model").visible, "first person hides only the active body")
+	var eye := zee.global_position.y + zee.eye_height()
+	_check(absf(_main._rig.camera.global_position.y - eye) < 0.3, "first-person camera sits at eye height")
+	_main._rig.set_mode(CameraRig.Mode.OVERVIEW)
+	_main._apply_camera_mode()
+	await _frames(30)
+	_check(zee.get("_model").visible, "overview shows the body again")
+	_check(_main._rig.camera.global_position.y > zee.global_position.y + 10.0, "overview camera is high above")
+	_main._rig.set_mode(CameraRig.Mode.THIRD_PERSON)
+	_main._apply_camera_mode()
+
+	# Walking: the active member moves where the camera faces
+	var start := zee.global_position
+	Input.action_press("move_up")
+	await get_tree().create_timer(0.6).timeout
+	Input.action_release("move_up")
+	var moved := zee.global_position - start
+	moved.y = 0.0
+	_check(moved.length() > 1.5 and moved.normalized().dot(_main._rig.forward()) > 0.8, "pressing forward walks where the camera looks")
+	_check(zee.is_on_floor(), "Zee stands on the ground")
 
 	# Hunger drains over time
 	var hunger_before := zee.hunger
@@ -139,12 +165,15 @@ func _find_resource(kind: ResourceNode.Kind) -> ResourceNode:
 	return null
 
 
-func _stand_next_to(member: FamilyMember, target: Node2D) -> void:
-	var gap := 20.0
+func _stand_next_to(member: FamilyMember, target: Node3D) -> void:
+	var gap := 0.4
 	if target is ResourceNode:
 		gap += (target as ResourceNode).radius
-	member.global_position = target.global_position + Vector2(-gap - FamilyMember.RADIUS * member.size_scale, 0)
-	member.velocity = Vector2.ZERO
+	var spot := target.global_position + Vector3(gap + FamilyMember.RADIUS * member.size_scale, 0, 0)
+	spot.y = _main._terrain.height_at(spot.x, spot.z) + 0.05
+	member.global_position = spot
+	member.velocity = Vector3.ZERO
+	member.facing = Vector3.LEFT
 
 
 func _check(condition: bool, description: String) -> void:

@@ -16,7 +16,7 @@ The ground is breaking apart. A cave family that has always survived by hiding m
 | Losing | **Forgiving by default:** a downed member is *knocked out* and must be carried back to camp to recover. If the whole family goes down, you wake at the last camp and drop what you carried. Optional **Hardcore** mode with permanent loss. | Broad audience, less frustration on mobile |
 | World | **Movable camps:** build a camp in each land; earthquakes eventually force you onward. Fire and tool knowledge carry over. | Mixes base building with the pressure to keep moving |
 | Tone | **Funny and colourful**, with real danger | Matches the inspiration; stands out from grim survival games |
-| Camera | **Top-down, 2D** | Best for touch controls; cheapest art |
+| Camera | **3D, low-poly**, with three views: **third person** (default), **first person** and a high **overview** | More immersive; the overview keeps the top-down feel for planning. Low-poly keeps art affordable and phones fast |
 | Audience | **Everyone (10+)**, cartoon peril, no gore | Widest store reach |
 | Engine | **Godot 4 (latest stable)** | Free, exports to Android, iOS, PC and web from one project |
 | Platforms | Android → PC (itch.io/Steam) → iOS | Cheapest and fastest path to real players |
@@ -73,7 +73,7 @@ Stone axe · Spear · Basket (more carrying space) · Torch · Campfire · Lean-
 
 | Milestone | What's in it | Playable on |
 |---|---|---|
-| **M1: First playable** | One small land, 2 family members (Krag, Zee) with switching, gathering, hunger, day/night, one creature (Boarcupine), touch + keyboard controls | PC + Android APK |
+| **M1: First playable** ✅ (now in 3D) | One small land, 2 family members (Krag, Zee) with switching, gathering, hunger, day/night, one creature (Boarcupine), touch + keyboard controls | PC + Android APK |
 | **M2: Survival core** | Fear meter, campfire, crafting (first 5 items), knockout/carry-back, saving | PC + Android |
 | **M3: Land 1 complete** | All 5 family members, the quake event, travelling to Land 2 | PC + Android |
 | **M4: Land 2 + fire** | Glowroot Jungle, Ollo joins, night creatures | PC + Android |

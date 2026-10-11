@@ -1,12 +1,14 @@
 # Firstlight
 
-*Working title.* A top-down prehistoric family survival game. The ground is breaking apart, and a cave family must leave everything they know and follow a light on the horizon. Built with **Godot 4.7**, designed for phones first, then PC.
+*Working title.* A 3D prehistoric family survival game. The ground is breaking apart, and a cave family must leave everything they know and follow a light on the horizon. Built with **Godot 4.7**, designed for phones first, then PC.
 
 See the full plan in [`docs/DESIGN.md`](docs/DESIGN.md).
 
-## Status: M1, first playable
+## Status: M1, first playable (3D)
 
 What's in this build:
+- **A 3D low-poly world:** rolling badlands ringed by mountains, a sky with the sun moving across it, shadows and fog
+- **Three camera views** (press **V**): third person over the shoulder, first person through their eyes, and a high overview
 - **Two family members you can switch between:**
   - **Krag** (dad): strong and slow, smashes boulders, hits hard
   - **Zee** (teen daughter): fast and fragile, climbs tall trees for fruit
@@ -18,7 +20,7 @@ What's in this build:
 - **Knockouts:** a downed member can be helped up by the other one. If everyone goes down, the family wakes up at the cave next morning and loses half their supplies.
 - **Touch controls** (joystick plus buttons), **keyboard** and **gamepad**
 
-All art is placeholder shapes drawn in code, so the gameplay can be tested before real art goes in.
+All models are placeholders built from simple shapes in code, so the gameplay can be tested before real art goes in. Real models can later be made in Blender: Godot opens `.blend` and `.glb` files directly.
 
 ## Play it on your computer
 
@@ -30,12 +32,15 @@ The first time you open the project, Godot spends a few seconds importing. That'
 
 ### Controls
 
-| Action | Keyboard | Gamepad | Phone |
+| Action | Keyboard & mouse | Gamepad | Phone |
 |---|---|---|---|
 | Move | WASD / arrow keys | Left stick / D-pad | Drag on the left side of the screen |
-| Gather / attack / help up | Space or E | A | **ACT** button |
+| Look around | Move the mouse (click the game first; Esc frees the mouse) | Right stick | Drag on the right side of the screen |
+| Gather / attack / help up | Space, E or left click | A | **ACT** button |
 | Eat | F | X | **EAT** button |
 | Switch member | 1, 2 or Tab | Right shoulder | **SWAP** button or tap a portrait |
+| Change camera view | V | Y | **VIEW** button |
+| Zoom (third person) | Mouse wheel | | |
 | Test touch controls on PC | F2 (then use the mouse) | | |
 
 ## Play it on an Android phone
@@ -64,15 +69,20 @@ It plays through gathering, talents, switching, eating, hunting and the knockout
 project.godot        Godot project settings
 scenes/main.tscn     The game scene (it builds the world in code)
 scripts/
-  main.gd            World building, game loop, actions, day/night
+  main.gd            World building, game loop, actions, lighting and day/night
   game_state.gd      Shared supplies, messages, input map (autoload)
-  family_member.gd   Family members: movement, following, health, hunger
+  camera_rig.gd      Third-person, first-person and overview cameras
+  terrain.gd         Low-poly hills, mountains and ground collision
+  family_member.gd   Family members: model, walking, following, health, hunger
   boarcupine.gd      The charging spiky boar
   resource_node.gd   Bushes, trees, rocks, boulders, tall trees
+  camp.gd            The family cave and the safe area
+  rock_wall.gd       The ridge around the hidden grove
   hud.gd             Interface: cards, supplies, hints, touch buttons
   member_card.gd     A family member's portrait card
-  touch_stick.gd     Touch joystick
-  ground.gd, rock_wall.gd, camp.gd, floating_text.gd, draw_util.gd
+  touch_stick.gd     Touch joystick (move)
+  touch_look.gd      Touch look pad (camera)
+  mesh_util.gd, floating_text.gd
 tests/               Automated smoke test
 docs/DESIGN.md       Game design plan
 ```

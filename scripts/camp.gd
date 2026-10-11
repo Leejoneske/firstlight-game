@@ -1,46 +1,51 @@
 class_name Camp
-extends Node2D
-## The family cave. Resting inside the camp area heals the family and slows hunger,
-## and creatures won't follow them in.
+extends Node3D
+## The family cave. Resting inside the ring of stones heals the family and slows
+## hunger, and creatures won't follow them in.
 
-const MOUND_CENTER := Vector2(0, -120)
-const MOUND_RADIUS := 80.0
+const MOUND_CENTER := Vector3(0, 0, -6.0)
+
+var radius := 7.0
 
 
 func _ready() -> void:
-	var body := StaticBody2D.new()
+	var rock := Color(0.55, 0.43, 0.33)
+	var parts := [
+		[MeshUtil.sphere(1.0, 12, 7), rock, MeshUtil.xf(MOUND_CENTER, Vector3(6.5, 4.2, 5.0))],
+		[MeshUtil.sphere(1.0, 8, 5), rock.lightened(0.1), MeshUtil.xf(MOUND_CENTER + Vector3(-2.0, 3.0, -0.5), Vector3(2.4, 1.6, 2.0))],
+		[MeshUtil.sphere(1.0, 8, 5), rock.darkened(0.12), MeshUtil.xf(MOUND_CENTER + Vector3(3.5, 1.2, 1.5), Vector3(2.2, 1.8, 2.0))],
+		# Cave mouth
+		[MeshUtil.sphere(1.0, 12, 6), Color(0.1, 0.07, 0.05), MeshUtil.xf(Vector3(0, 0.2, -1.4), Vector3(1.7, 2.2, 0.9))],
+		# Sleeping furs
+		[MeshUtil.sphere(1.0, 10, 4), Color(0.62, 0.45, 0.28), MeshUtil.xf(Vector3(-3.0, 0.02, 1.0), Vector3(1.1, 0.06, 0.6), Vector3(0, 0.3, 0))],
+		[MeshUtil.sphere(1.0, 10, 4), Color(0.55, 0.4, 0.3), MeshUtil.xf(Vector3(3.0, 0.02, 1.2), Vector3(1.1, 0.06, 0.6), Vector3(0, -0.4, 0))],
+		# Unlit fire pit: sticks in a ring of stones
+		[MeshUtil.cylinder(0.04, 0.05, 1.1, 5), Color(0.45, 0.3, 0.18), MeshUtil.xf(Vector3(0, 0.12, 2.5), Vector3.ONE, Vector3(0, 0.5, PI / 2.0 - 0.15))],
+		[MeshUtil.cylinder(0.04, 0.05, 1.1, 5), Color(0.4, 0.27, 0.16), MeshUtil.xf(Vector3(0, 0.12, 2.5), Vector3.ONE, Vector3(0, -0.6, PI / 2.0 - 0.15))],
+	]
+	for i in 9:
+		var offset := Vector3.FORWARD.rotated(Vector3.UP, i * TAU / 9.0) * 0.7
+		parts.append([MeshUtil.sphere(0.16, 6, 3), Color(0.5, 0.48, 0.45), MeshUtil.xf(Vector3(0, 0.08, 2.5) + offset)])
+	# Pale stones marking the edge of the safe area
+	for i in 28:
+		var offset := Vector3.FORWARD.rotated(Vector3.UP, i * TAU / 28.0) * radius
+		parts.append([MeshUtil.sphere(0.18, 5, 3), Color(0.9, 0.86, 0.78), MeshUtil.xf(offset + Vector3(0, 0.03, 0), Vector3(1.2, 0.5, 1.0))])
+	var model := MeshInstance3D.new()
+	model.mesh = MeshUtil.combine(parts)
+	add_child(model)
+
+	var body := StaticBody3D.new()
 	body.collision_layer = 1
 	body.collision_mask = 0
-	var shape := CollisionShape2D.new()
-	var circle := CircleShape2D.new()
-	circle.radius = MOUND_RADIUS
-	shape.shape = circle
+	var shape := CollisionShape3D.new()
+	var cylinder := CylinderShape3D.new()
+	cylinder.radius = 4.8
+	cylinder.height = 8.0
+	shape.shape = cylinder
 	shape.position = MOUND_CENTER
 	body.add_child(shape)
 	add_child(body)
 
-
-func _draw() -> void:
-	# Rock mound with the cave mouth
-	var rock := Color(0.55, 0.43, 0.33)
-	draw_colored_polygon(DrawUtil.ellipse(MOUND_CENTER + Vector2(0, 10), 125.0, 85.0, 28), rock.darkened(0.25))
-	draw_colored_polygon(DrawUtil.ellipse(MOUND_CENTER, 112.0, 74.0, 28), rock)
-	draw_colored_polygon(DrawUtil.ellipse(MOUND_CENTER + Vector2(-30, -30), 40.0, 20.0, 16), rock.lightened(0.12))
-	var mouth := PackedVector2Array()
-	for i in 17:
-		var angle := PI + PI * i / 16.0
-		mouth.append(Vector2(0, -52) + Vector2(cos(angle) * 46.0, sin(angle) * 52.0))
-	draw_colored_polygon(mouth, Color(0.12, 0.08, 0.06))
-
-	# Sleeping furs
-	draw_colored_polygon(DrawUtil.ellipse(Vector2(-75, 25), 30.0, 14.0), Color(0.62, 0.45, 0.28))
-	draw_colored_polygon(DrawUtil.ellipse(Vector2(75, 25), 30.0, 14.0), Color(0.55, 0.4, 0.3))
-
-	# Unlit fire pit: a ring of stones and a pile of sticks
-	var pit := Vector2(0, 55)
-	for i in 9:
-		draw_circle(pit + Vector2.from_angle(TAU * i / 9.0) * Vector2(26, 13), 6.0, Color(0.5, 0.48, 0.45))
-	draw_line(pit + Vector2(-14, 4), pit + Vector2(12, -6), Color(0.45, 0.3, 0.18), 4.0)
-	draw_line(pit + Vector2(-12, -6), pit + Vector2(14, 4), Color(0.4, 0.27, 0.16), 4.0)
-
-	DrawUtil.label(self, Vector2(0, -215), "Family Cave", 18, Color(1, 0.95, 0.8, 0.9))
+	var cave_label := MeshUtil.label("Family Cave", 48, Color(1, 0.95, 0.8))
+	cave_label.position = MOUND_CENTER + Vector3(0, 5.2, 0)
+	add_child(cave_label)

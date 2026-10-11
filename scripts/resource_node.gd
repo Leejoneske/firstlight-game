@@ -1,43 +1,62 @@
 class_name ResourceNode
-extends StaticBody2D
+extends StaticBody3D
 ## Something the family can gather from: bushes, trees, rocks and boulders.
 ## Some need a particular talent: boulders need strength, tall trees need a climber.
 
 enum Kind { BERRY_BUSH, TREE, ROCK, BOULDER, TALL_TREE }
 
-## regrow < 0 means the resource is gone for good once used up.
+## regrow < 0 means the resource is gone for good once used up. Radius is in metres.
 const DATA := {
-	Kind.BERRY_BUSH: {"item": "berries", "amount": 2, "uses": 3, "regrow": 60.0, "radius": 22.0, "solid": false, "verb": "Pick berries"},
-	Kind.TREE: {"item": "sticks", "amount": 1, "uses": 4, "regrow": 90.0, "radius": 14.0, "solid": true, "verb": "Gather sticks"},
-	Kind.ROCK: {"item": "stones", "amount": 1, "uses": 3, "regrow": 120.0, "radius": 16.0, "solid": true, "verb": "Collect stones"},
-	Kind.BOULDER: {"item": "stones", "amount": 5, "uses": 1, "regrow": -1.0, "radius": 42.0, "solid": true, "verb": "Smash boulder"},
-	Kind.TALL_TREE: {"item": "fruit", "amount": 2, "uses": 2, "regrow": 90.0, "radius": 16.0, "solid": true, "verb": "Climb for fruit"},
+	Kind.BERRY_BUSH: {"item": "berries", "amount": 2, "uses": 3, "regrow": 60.0, "radius": 0.7, "solid": false, "verb": "Pick berries"},
+	Kind.TREE: {"item": "sticks", "amount": 1, "uses": 4, "regrow": 90.0, "radius": 0.35, "solid": true, "verb": "Gather sticks"},
+	Kind.ROCK: {"item": "stones", "amount": 1, "uses": 3, "regrow": 120.0, "radius": 0.5, "solid": true, "verb": "Collect stones"},
+	Kind.BOULDER: {"item": "stones", "amount": 5, "uses": 1, "regrow": -1.0, "radius": 1.15, "solid": true, "verb": "Smash boulder"},
+	Kind.TALL_TREE: {"item": "fruit", "amount": 2, "uses": 2, "regrow": 90.0, "radius": 0.4, "solid": true, "verb": "Climb for fruit"},
 }
+
+## Meshes are built once per kind and shared by every resource of that kind.
+static var _mesh_cache := {}
 
 var kind := Kind.BERRY_BUSH
 var is_gate := false  ## The boulder blocking the hidden grove.
-var radius := 20.0
+var radius := 0.5
 var uses_left := 0
 
 var _regrow_timer := 0.0
 var _shake := 0.0
-var _shape: CollisionShape2D
-var _tint := 0.0
+var _shape: CollisionShape3D
+var _visual: Node3D
+var _main_mesh: MeshInstance3D
+var _extra_mesh: MeshInstance3D  ## Berries, fruit or leaves that change as it's used.
 
 
 func _ready() -> void:
 	var data: Dictionary = DATA[kind]
 	radius = data.radius
 	uses_left = data.uses
-	_tint = randf_range(-0.06, 0.06)
 	collision_layer = 1
 	collision_mask = 0
 	if data.solid:
-		_shape = CollisionShape2D.new()
-		var circle := CircleShape2D.new()
-		circle.radius = radius
-		_shape.shape = circle
+		_shape = CollisionShape3D.new()
+		var cylinder := CylinderShape3D.new()
+		cylinder.radius = radius
+		cylinder.height = 3.0
+		_shape.shape = cylinder
+		_shape.position.y = 1.5
 		add_child(_shape)
+
+	_visual = Node3D.new()
+	_visual.rotation.y = randf() * TAU
+	_visual.scale = Vector3.ONE * randf_range(0.9, 1.12)
+	add_child(_visual)
+	_main_mesh = MeshInstance3D.new()
+	_main_mesh.mesh = _cached_mesh("main")
+	_main_mesh.visibility_range_end = 75.0
+	_visual.add_child(_main_mesh)
+	_extra_mesh = MeshInstance3D.new()
+	_extra_mesh.visibility_range_end = 75.0
+	_visual.add_child(_extra_mesh)
+	_update_look()
 
 
 func is_available() -> bool:
@@ -66,7 +85,7 @@ func action_name(member: FamilyMember) -> String:
 func interact(member: FamilyMember) -> Dictionary:
 	if not is_available():
 		return {}
-	_shake = 0.3
+	_shake = 0.35
 	if not can_use(member):
 		if kind == Kind.BOULDER:
 			return {"message": "Too heavy for %s. Switch to someone stronger!" % member.member_name}
@@ -78,6 +97,7 @@ func interact(member: FamilyMember) -> Dictionary:
 		if is_gate:
 			result["message"] = "The boulder shatters... there's a hidden grove behind it!"
 		_deplete()
+	_update_look()
 	return result
 
 
@@ -90,13 +110,12 @@ func _deplete() -> void:
 	if kind == Kind.ROCK:
 		visible = false
 		_shape.set_deferred("disabled", true)
-	queue_redraw()
 
 
 func _process(delta: float) -> void:
 	if _shake > 0.0:
 		_shake -= delta
-		queue_redraw()
+		_visual.rotation.z = sin(_shake * 50.0) * 0.06 * _shake / 0.35
 	if uses_left <= 0:
 		_regrow_timer -= delta
 		if _regrow_timer <= 0.0:
@@ -104,78 +123,79 @@ func _process(delta: float) -> void:
 			visible = true
 			if _shape:
 				_shape.set_deferred("disabled", false)
-			queue_redraw()
+			_update_look()
 
 
-func _draw() -> void:
-	var sx := sin(_shake * 60.0) * 3.0 if _shake > 0.0 else 0.0
+## Shows how much is left: berries and fruit disappear as they're picked.
+func _update_look() -> void:
+	match kind:
+		Kind.BERRY_BUSH, Kind.TALL_TREE:
+			_extra_mesh.mesh = _cached_mesh("fruit_%d" % uses_left) if uses_left > 0 else null
+		Kind.TREE:
+			_extra_mesh.mesh = _cached_mesh("leaves" if uses_left > 0 else "bare")
+
+
+func _cached_mesh(variant: String) -> Mesh:
+	var key := "%d_%s" % [kind, variant]
+	if not _mesh_cache.has(key):
+		_mesh_cache[key] = _build_mesh(variant)
+	return _mesh_cache[key]
+
+
+func _build_mesh(variant: String) -> Mesh:
+	var parts := []
 	match kind:
 		Kind.BERRY_BUSH:
-			_draw_bush(sx)
+			if variant == "main":
+				var green := Color(0.33, 0.52, 0.24)
+				for blob in [Vector4(-0.35, 0.35, 0.1, 0.45), Vector4(0.35, 0.35, -0.1, 0.45), Vector4(0, 0.6, 0, 0.5), Vector4(0, 0.35, 0.35, 0.4)]:
+					parts.append([MeshUtil.sphere(blob.w, 8, 5), green if blob.y < 0.5 else green.darkened(0.1), MeshUtil.xf(Vector3(blob.x, blob.y, blob.z))])
+			else:
+				var count := int(variant.get_slice("_", 1)) * 4
+				for i in count:
+					var angle := i * 2.4
+					var height := 0.3 + fmod(i * 0.37, 0.5)
+					var point := Vector3(cos(angle) * 0.62, height, sin(angle) * 0.62) * Vector3(1, 1, 1)
+					if i % 3 == 0:
+						point = Vector3(cos(angle) * 0.3, 0.95, sin(angle) * 0.3)
+					parts.append([MeshUtil.sphere(0.07, 6, 3), Color(0.85, 0.1, 0.18), MeshUtil.xf(point)])
 		Kind.TREE:
-			_draw_tree(sx)
+			var trunk := Color(0.42, 0.28, 0.17)
+			if variant == "main":
+				parts.append([MeshUtil.cylinder(0.12, 0.2, 2.2, 7), trunk, MeshUtil.xf(Vector3(0, 1.1, 0))])
+				parts.append([MeshUtil.cylinder(0.05, 0.09, 1.0, 5), trunk, MeshUtil.xf(Vector3(-0.35, 2.0, 0), Vector3.ONE, Vector3(0, 0, 0.7))])
+				parts.append([MeshUtil.cylinder(0.05, 0.09, 1.0, 5), trunk, MeshUtil.xf(Vector3(0.3, 2.2, 0.1), Vector3.ONE, Vector3(0.2, 0, -0.6))])
+			else:
+				var leaves := Color(0.5, 0.56, 0.28) if variant == "leaves" else Color(0.62, 0.52, 0.34)
+				var size := 1.0 if variant == "leaves" else 0.65
+				for blob in [Vector3(-0.7, 2.5, 0), Vector3(0.65, 2.7, 0.15), Vector3(0, 3.0, -0.1), Vector3(0, 2.6, 0.55)]:
+					parts.append([MeshUtil.sphere(0.6 * size, 7, 4), leaves, MeshUtil.xf(blob)])
 		Kind.ROCK:
-			_draw_rock(sx)
+			var grey := Color(0.56, 0.53, 0.5)
+			parts.append([MeshUtil.sphere(0.5, 6, 4), grey, MeshUtil.xf(Vector3(0, 0.2, 0), Vector3(1.0, 0.65, 0.85))])
+			parts.append([MeshUtil.sphere(0.22, 5, 3), grey.lightened(0.1), MeshUtil.xf(Vector3(0.45, 0.1, 0.2))])
 		Kind.BOULDER:
-			_draw_boulder(sx)
+			var stone := Color(0.5, 0.45, 0.4)
+			parts.append([MeshUtil.sphere(1.2, 7, 5), stone, MeshUtil.xf(Vector3(0, 0.85, 0), Vector3(1.0, 0.85, 0.95), Vector3(0.1, 0, 0.15))])
+			parts.append([MeshUtil.sphere(0.5, 6, 4), stone.darkened(0.15), MeshUtil.xf(Vector3(0.8, 0.3, 0.5))])
+			parts.append([MeshUtil.sphere(0.35, 5, 3), stone.lightened(0.1), MeshUtil.xf(Vector3(-0.3, 1.75, -0.2))])
 		Kind.TALL_TREE:
-			_draw_tall_tree(sx)
-
-
-func _draw_bush(sx: float) -> void:
-	DrawUtil.shadow(self, 26.0, 9.0)
-	var green := Color(0.33 + _tint, 0.52, 0.24)
-	for blob in [Vector3(-12, -14, 14), Vector3(12, -14, 14), Vector3(0, -24, 16), Vector3(0, -11, 14)]:
-		draw_circle(Vector2(blob.x + sx, blob.y), blob.z, green.darkened(0.15) if blob.y < -20 else green)
-	var spots := [Vector2(-14, -16), Vector2(-4, -27), Vector2(8, -20), Vector2(15, -11), Vector2(-6, -9),
-		Vector2(4, -31), Vector2(-17, -8), Vector2(11, -27), Vector2(0, -16)]
-	for i in mini(uses_left * 3, spots.size()):
-		draw_circle(spots[i] + Vector2(sx, 0), 3.2, Color(0.85, 0.12, 0.2))
-
-
-func _draw_tree(sx: float) -> void:
-	DrawUtil.shadow(self, 22.0, 8.0)
-	var trunk := Color(0.42, 0.28, 0.17)
-	draw_colored_polygon(PackedVector2Array([Vector2(-7, 0), Vector2(7, 0), Vector2(4 + sx, -52), Vector2(-4 + sx, -52)]), trunk)
-	draw_line(Vector2(sx, -40), Vector2(-16 + sx, -56), trunk, 4.0)
-	draw_line(Vector2(sx, -46), Vector2(16 + sx, -60), trunk, 4.0)
-	var leaves := Color(0.5 + _tint, 0.55, 0.28)
-	if uses_left <= 0:
-		leaves = leaves.lerp(Color(0.6, 0.5, 0.35), 0.6)
-	for blob in [Vector3(-16, -60, 14), Vector3(16, -64, 14), Vector3(0, -70, 18)]:
-		draw_circle(Vector2(blob.x + sx * 1.5, blob.y), blob.z, leaves)
-
-
-func _draw_rock(sx: float) -> void:
-	DrawUtil.shadow(self, 20.0, 7.0)
-	var grey := Color(0.55 + _tint, 0.52 + _tint, 0.5)
-	draw_colored_polygon(DrawUtil.ellipse(Vector2(sx, -9), 19.0, 13.0, 10), grey.darkened(0.2))
-	draw_colored_polygon(DrawUtil.ellipse(Vector2(sx - 2, -12), 15.0, 9.0, 10), grey)
-	for i in uses_left:
-		draw_circle(Vector2(-8 + i * 8 + sx, -12), 2.0, grey.lightened(0.3))
-
-
-func _draw_boulder(sx: float) -> void:
-	DrawUtil.shadow(self, 46.0, 14.0)
-	var grey := Color(0.5 + _tint, 0.45, 0.4)
-	draw_colored_polygon(DrawUtil.ellipse(Vector2(sx, -30), 44.0, 34.0, 14), grey.darkened(0.25))
-	draw_colored_polygon(DrawUtil.ellipse(Vector2(sx - 4, -36), 36.0, 26.0, 14), grey)
-	draw_polyline(PackedVector2Array([Vector2(-10 + sx, -58), Vector2(-2 + sx, -40), Vector2(-12 + sx, -26), Vector2(-4 + sx, -14)]),
-		grey.darkened(0.45), 2.5)
-	draw_polyline(PackedVector2Array([Vector2(14 + sx, -50), Vector2(20 + sx, -36), Vector2(30 + sx, -32)]), grey.darkened(0.45), 2.0)
-
-
-func _draw_tall_tree(sx: float) -> void:
-	DrawUtil.shadow(self, 24.0, 8.0)
-	var trunk := Color(0.5, 0.36, 0.22)
-	for i in 6:
-		var y := -i * 20.0
-		draw_colored_polygon(PackedVector2Array([Vector2(-8, y), Vector2(8, y), Vector2(6 + sx * 0.3, y - 20), Vector2(-6 + sx * 0.3, y - 20)]),
-			trunk if i % 2 == 0 else trunk.darkened(0.12))
-	var top := Vector2(sx, -122)
-	var frond := Color(0.3 + _tint, 0.6, 0.3)
-	for angle in [-2.8, -2.2, -1.6, -1.0, -0.4, 0.3, 2.9 + PI]:
-		draw_line(top, top + Vector2.from_angle(angle) * 44.0 + Vector2(0, 12), frond, 7.0)
-	var fruit_spots := [Vector2(-7, 6), Vector2(7, 6), Vector2(0, 11), Vector2(-12, 12)]
-	for i in mini(uses_left * 2, fruit_spots.size()):
-		draw_circle(top + fruit_spots[i], 5.5, Color(0.98, 0.58, 0.15))
+			var top := Vector3(0.3, 5.4, 0)
+			if variant == "main":
+				var trunk := Color(0.5, 0.36, 0.22)
+				for i in 6:
+					var t := i / 6.0
+					var center := Vector3(0.3 * t * t, 0.45 + i * 0.9, 0)
+					parts.append([MeshUtil.cylinder(0.15, 0.2, 0.92, 7), trunk if i % 2 == 0 else trunk.darkened(0.12), MeshUtil.xf(center, Vector3.ONE, Vector3(0, 0, -0.06 * i))])
+				var frond := Color(0.3, 0.6, 0.3)
+				for i in 7:
+					var yaw := i * TAU / 7.0
+					var leaf_xf := Transform3D(Basis.from_euler(Vector3(0, yaw, 0)) * Basis.from_euler(Vector3(0, 0, -0.45)), top)
+					leaf_xf = leaf_xf * MeshUtil.xf(Vector3(1.1, 0, 0), Vector3(2.2, 0.06, 0.45))
+					parts.append([MeshUtil.box(Vector3.ONE), frond if i % 2 == 0 else frond.darkened(0.12), leaf_xf])
+			else:
+				var count := int(variant.get_slice("_", 1)) * 2
+				for i in count:
+					var point := top + Vector3(cos(i * 1.7) * 0.28, -0.3 - (i % 2) * 0.12, sin(i * 1.7) * 0.28)
+					parts.append([MeshUtil.sphere(0.16, 7, 4), Color(0.98, 0.58, 0.15), MeshUtil.xf(point)])
+	return MeshUtil.combine(parts)

@@ -1,17 +1,17 @@
-extends Node2D
-## Builds the first test land (the Cracked Badlands) and runs the game loop:
-## family switching, gathering, hunger, day and night, and the Boarcupines.
+extends Node3D
+## Builds the first test land (the Cracked Badlands) in 3D and runs the game loop:
+## family switching, gathering, hunger, day and night, the Boarcupines and the camera views.
 
-const WORLD_HALF := 1600.0
-const CAMP_RADIUS := 170.0
-const DAY_LENGTH := 240.0  ## Seconds for a full day and night.
+const WORLD_HALF := 60.0  ## Half the width of the play area, in metres.
+const CAMP_RADIUS := 7.0
+const DAY_LENGTH := 300.0  ## Seconds for a full day and night.
 const START_TIME := 0.3  ## 0 = midnight, 0.25 = dawn, 0.5 = noon, 0.75 = dusk.
-const BOAR_COUNT := 6
+const BOAR_COUNT := 8
 const BOAR_RESPAWN_TIME := 45.0
-const ACTION_RANGE := 46.0  ## Largest gap between a member and something they can use.
+const ACTION_RANGE := 1.3  ## Largest gap (metres) between a member and something they can use.
 const HUNGRY_WARNING := 25.0
-const GROVE_RECT := Rect2(700, -1600, 900, 900)
-const GROVE_GATE := Vector2(700, -1150)
+const GROVE_RECT := Rect2(25, -60, 35, 35)  ## x, z, width, depth
+const GROVE_GATE := Vector2(25, -42)
 
 var members: Array[FamilyMember] = []
 var boars: Array[Boarcupine] = []
@@ -21,29 +21,33 @@ var time_of_day := START_TIME
 var day := 1
 
 var _rng := RandomNumberGenerator.new()
-var _world: Node2D
-var _effects: Node2D
-var _camera: Camera2D
+var _terrain: Terrain
+var _rig: CameraRig
 var _hud: Hud
-var _sky: CanvasModulate
-var _sky_gradient := Gradient.new()
-var _light: PointLight2D
+var _environment: Environment
+var _sky_material: ProceduralSkyMaterial
+var _sun: DirectionalLight3D
+var _moon: DirectionalLight3D
+var _glow: OmniLight3D
 var _boar_respawns: Array[float] = []
 var _retreating := false
 var _hungry_warned := {}
+var _palette := {}  ## Gradients for sky and light colours over the day.
 
 
 func _ready() -> void:
 	_rng.randomize()
-	_build_sky()
+	_build_environment()
 	_build_world()
 	_spawn_family()
 	_spawn_resources()
 	for i in BOAR_COUNT:
 		_spawn_boar()
-	_build_camera()
+	_rig = CameraRig.new()
+	add_child(_rig)
 	_build_hud()
 	_switch_to(0)
+	_apply_camera_mode()
 	_advance_time(0.0)
 	GameState.notify("The ground keeps shaking... Gather food before nightfall!")
 
@@ -51,19 +55,44 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not _retreating:
 		_advance_time(delta)
+	_rig.rotate_by_pixels(_hud.look_pad.take_delta(), _rig.touch_sensitivity)
 	_read_movement()
 	_update_camp_flags()
 	_update_boar_respawns(delta)
 	_check_hunger()
 	if active:
-		_camera.global_position = active.global_position
-		_light.global_position = active.global_position + Vector2(0, -20)
+		_glow.global_position = active.global_position + Vector3.UP * 2.2
 	_hud.show_hint(_hint_text())
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		_rig.rotate_by_pixels((event as InputEventMouseMotion).relative, _rig.mouse_sensitivity)
+		return
+	if event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+		_rig.rotate_by_pixels((event as InputEventMouseMotion).relative, _rig.mouse_sensitivity)
+		return
+	if event is InputEventMouseButton and event.pressed:
+		var button := event as InputEventMouseButton
+		match button.button_index:
+			MOUSE_BUTTON_WHEEL_UP:
+				_rig.zoom(-0.6)
+			MOUSE_BUTTON_WHEEL_DOWN:
+				_rig.zoom(0.6)
+			MOUSE_BUTTON_LEFT:
+				if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+					_do_action()
+				elif not _hud.touch_ui and _rig.mode != CameraRig.Mode.OVERVIEW and button.device != InputEvent.DEVICE_ID_EMULATION:
+					Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		return
+
+	if event.is_action_pressed("free_mouse"):
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if event.is_action_pressed("toggle_touch_ui"):
 		_hud.toggle_touch_ui()
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if event.is_action_pressed("camera_mode"):
+		_cycle_camera()
 	if _retreating:
 		return
 	if event.is_action_pressed("action"):
@@ -80,63 +109,74 @@ func _unhandled_input(event: InputEvent) -> void:
 
 # --- Building the world ---------------------------------------------------
 
-func _build_sky() -> void:
-	var night := Color(0.22, 0.25, 0.45)
-	var dawn := Color(0.95, 0.75, 0.65)
-	var dusk := Color(0.95, 0.65, 0.5)
-	_sky_gradient.offsets = PackedFloat32Array([0.0, 0.18, 0.26, 0.35, 0.65, 0.74, 0.82, 1.0])
-	_sky_gradient.colors = PackedColorArray([night, night, dawn, Color.WHITE, Color.WHITE, dusk, night, night])
-	_sky = CanvasModulate.new()
-	add_child(_sky)
+func _build_environment() -> void:
+	_palette = {
+		"sky_top": _gradient([Color(0.04, 0.05, 0.12), Color(0.04, 0.05, 0.12), Color(0.35, 0.45, 0.7), Color(0.3, 0.5, 0.85), Color(0.3, 0.5, 0.85), Color(0.35, 0.35, 0.6), Color(0.04, 0.05, 0.12), Color(0.04, 0.05, 0.12)]),
+		"sky_horizon": _gradient([Color(0.1, 0.1, 0.2), Color(0.1, 0.1, 0.2), Color(0.98, 0.65, 0.45), Color(0.8, 0.85, 0.9), Color(0.8, 0.85, 0.9), Color(0.98, 0.55, 0.35), Color(0.1, 0.1, 0.2), Color(0.1, 0.1, 0.2)]),
+		"sun": _gradient([Color(1, 0.6, 0.4), Color(1, 0.6, 0.4), Color(1, 0.7, 0.5), Color(1, 0.96, 0.88), Color(1, 0.96, 0.88), Color(1, 0.65, 0.4), Color(1, 0.6, 0.4), Color(1, 0.6, 0.4)]),
+		"ambient": _gradient([Color(0.16, 0.18, 0.32), Color(0.16, 0.18, 0.32), Color(0.6, 0.5, 0.5), Color(0.62, 0.62, 0.66), Color(0.62, 0.62, 0.66), Color(0.6, 0.48, 0.45), Color(0.16, 0.18, 0.32), Color(0.16, 0.18, 0.32)]),
+	}
+	_sky_material = ProceduralSkyMaterial.new()
+	_sky_material.sun_angle_max = 20.0
+	var sky := Sky.new()
+	sky.sky_material = _sky_material
+	_environment = Environment.new()
+	_environment.background_mode = Environment.BG_SKY
+	_environment.sky = sky
+	_environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	_environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	_environment.fog_enabled = true
+	_environment.fog_density = 0.008
+	var world_environment := WorldEnvironment.new()
+	world_environment.environment = _environment
+	add_child(world_environment)
 
+	_sun = DirectionalLight3D.new()
+	_sun.shadow_enabled = true
+	_sun.directional_shadow_max_distance = 60.0
+	add_child(_sun)
+	_moon = DirectionalLight3D.new()
+	_moon.light_color = Color(0.6, 0.7, 1.0)
+	_moon.rotation = Vector3(-0.9, 0.6, 0)
+	add_child(_moon)
 	# A soft glow around the active member so the night isn't pitch black
-	var glow := Gradient.new()
-	glow.colors = PackedColorArray([Color(1, 0.9, 0.7, 1), Color(1, 0.9, 0.7, 0)])
-	var texture := GradientTexture2D.new()
-	texture.width = 512
-	texture.height = 512
-	texture.fill = GradientTexture2D.FILL_RADIAL
-	texture.fill_from = Vector2(0.5, 0.5)
-	texture.fill_to = Vector2(1.0, 0.5)
-	texture.gradient = glow
-	_light = PointLight2D.new()
-	_light.texture = texture
-	_light.energy = 0.0
-	add_child(_light)
+	_glow = OmniLight3D.new()
+	_glow.light_color = Color(1, 0.85, 0.65)
+	_glow.omni_range = 9.0
+	add_child(_glow)
+
+
+func _gradient(colors: Array) -> Gradient:
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, 0.18, 0.26, 0.35, 0.65, 0.74, 0.82, 1.0])
+	gradient.colors = PackedColorArray(colors)
+	return gradient
 
 
 func _build_world() -> void:
-	var ground := Ground.new()
-	ground.world_half = WORLD_HALF
-	ground.grove_rect = GROVE_RECT
-	ground.camp_radius = CAMP_RADIUS
-	add_child(ground)
+	_terrain = Terrain.new()
+	_terrain.half_size = WORLD_HALF
+	_terrain.grove_rect = GROVE_RECT
+	_terrain.flat_spots = [Vector3(0, 0, CAMP_RADIUS + 2.0), Vector3(GROVE_GATE.x, GROVE_GATE.y, 5.0)]
+	add_child(_terrain)
+	_terrain.build(_rng.randi())
 
-	var h := WORLD_HALF
-	_add_wall(Vector2(-h, -h), Vector2(h, -h))
-	_add_wall(Vector2(h, -h), Vector2(h, h))
-	_add_wall(Vector2(h, h), Vector2(-h, h))
-	_add_wall(Vector2(-h, h), Vector2(-h, -h))
 	# A ridge closes off the hidden grove. Its only way in is blocked by a boulder.
 	var gx := GROVE_RECT.position.x
-	_add_wall(Vector2(gx, -h), Vector2(gx, GROVE_GATE.y - 60.0))
-	_add_wall(Vector2(gx, GROVE_GATE.y + 60.0), Vector2(gx, GROVE_RECT.end.y))
-	_add_wall(Vector2(gx, GROVE_RECT.end.y), Vector2(h, GROVE_RECT.end.y))
+	_add_wall(Vector2(gx, -WORLD_HALF - 2.0), Vector2(gx, GROVE_GATE.y - 1.5))
+	_add_wall(Vector2(gx, GROVE_GATE.y + 1.5), Vector2(gx, GROVE_RECT.end.y))
+	_add_wall(Vector2(gx, GROVE_RECT.end.y), Vector2(WORLD_HALF + 2.0, GROVE_RECT.end.y))
 
-	_world = Node2D.new()
-	_world.y_sort_enabled = true
-	add_child(_world)
-	_world.add_child(Camp.new())
-
-	_effects = Node2D.new()
-	_effects.z_index = 50
-	add_child(_effects)
+	var camp := Camp.new()
+	camp.radius = CAMP_RADIUS
+	add_child(camp)
 
 
 func _add_wall(from: Vector2, to: Vector2) -> void:
 	var wall := RockWall.new()
 	wall.from = from
 	wall.to = to
+	wall.terrain = _terrain
 	add_child(wall)
 
 
@@ -145,33 +185,34 @@ func _spawn_family() -> void:
 	krag.member_name = "Krag"
 	krag.talent = "Strong: smashes boulders, hits hard"
 	krag.max_health = 130.0
-	krag.move_speed = 190.0
+	krag.move_speed = 4.6
 	krag.strength = 2
-	krag.hunger_rate = 0.35
-	krag.size_scale = 1.2
+	krag.hunger_rate = 0.3
+	krag.size_scale = 1.15
 	krag.skin_color = Color(0.78, 0.58, 0.43)
 	krag.fur_color = Color(0.5, 0.33, 0.2)
 	krag.hair_color = Color(0.15, 0.1, 0.07)
-	krag.position = Vector2(-40, 100)
-	krag.follow_offset = Vector2(-45, 35)
+	krag.follow_side = -1.0
 
 	var zee := FamilyMember.new()
 	zee.member_name = "Zee"
 	zee.talent = "Scout: fastest, climbs tall trees"
 	zee.max_health = 85.0
-	zee.move_speed = 270.0
+	zee.move_speed = 6.5
 	zee.strength = 1
 	zee.can_climb = true
-	zee.hunger_rate = 0.42
-	zee.size_scale = 0.95
+	zee.hunger_rate = 0.36
+	zee.size_scale = 0.92
 	zee.skin_color = Color(0.86, 0.66, 0.5)
 	zee.fur_color = Color(0.78, 0.58, 0.32)
 	zee.hair_color = Color(0.85, 0.38, 0.15)
-	zee.position = Vector2(40, 100)
-	zee.follow_offset = Vector2(45, 35)
+	zee.follow_side = 1.0
 
-	for member in [krag, zee]:
-		_world.add_child(member)
+	for i in 2:
+		var member: FamilyMember = [krag, zee][i]
+		member.position = _ground(Vector2(-1.2 + 2.4 * i, 4.0))
+		member.facing = Vector3.BACK
+		add_child(member)
 		members.append(member)
 		member.downed.connect(_on_member_downed.bind(member))
 
@@ -180,11 +221,11 @@ func _spawn_resources() -> void:
 	var gate := _add_resource(ResourceNode.Kind.BOULDER, GROVE_GATE)
 	gate.is_gate = true
 	var outside := {
-		ResourceNode.Kind.BERRY_BUSH: 22,
-		ResourceNode.Kind.TREE: 28,
-		ResourceNode.Kind.ROCK: 22,
-		ResourceNode.Kind.BOULDER: 6,
-		ResourceNode.Kind.TALL_TREE: 5,
+		ResourceNode.Kind.BERRY_BUSH: 40,
+		ResourceNode.Kind.TREE: 55,
+		ResourceNode.Kind.ROCK: 35,
+		ResourceNode.Kind.BOULDER: 10,
+		ResourceNode.Kind.TALL_TREE: 9,
 	}
 	for kind: ResourceNode.Kind in outside:
 		for i in outside[kind]:
@@ -192,7 +233,7 @@ func _spawn_resources() -> void:
 			if point != Vector2.INF:
 				_add_resource(kind, point)
 	# The hidden grove is rich in food
-	var grove := {ResourceNode.Kind.BERRY_BUSH: 10, ResourceNode.Kind.TALL_TREE: 4}
+	var grove := {ResourceNode.Kind.BERRY_BUSH: 16, ResourceNode.Kind.TALL_TREE: 7, ResourceNode.Kind.TREE: 6}
 	for kind: ResourceNode.Kind in grove:
 		for i in grove[kind]:
 			var point := _random_point(true)
@@ -203,37 +244,42 @@ func _spawn_resources() -> void:
 func _add_resource(kind: ResourceNode.Kind, point: Vector2) -> ResourceNode:
 	var resource := ResourceNode.new()
 	resource.kind = kind
-	resource.position = point
-	_world.add_child(resource)
+	resource.position = _ground(point)
+	add_child(resource)
 	resources.append(resource)
 	resource.tree_exiting.connect(func() -> void: resources.erase(resource))
 	return resource
 
 
-## Finds a free spot for something new, either in the open badlands or inside the grove.
+## A point on the ground at (x, z).
+func _ground(point: Vector2) -> Vector3:
+	return Vector3(point.x, _terrain.height_at(point.x, point.y), point.y)
+
+
+## Finds a free spot (x, z) for something new, in the open badlands or inside the grove.
 ## Returns Vector2.INF if no spot was found.
 func _random_point(in_grove: bool) -> Vector2:
-	var margin := 90.0
+	var margin := 3.0
 	for attempt in 40:
 		var point: Vector2
 		if in_grove:
 			point = Vector2(_rng.randf_range(GROVE_RECT.position.x + margin, GROVE_RECT.end.x - margin),
 				_rng.randf_range(GROVE_RECT.position.y + margin, GROVE_RECT.end.y - margin))
 		else:
-			point = Vector2(_rng.randf_range(-WORLD_HALF + margin, WORLD_HALF - margin),
-				_rng.randf_range(-WORLD_HALF + margin, WORLD_HALF - margin))
-			if GROVE_RECT.grow(80.0).has_point(point) or point.length() < CAMP_RADIUS + 90.0:
+			var limit := WORLD_HALF - 6.0
+			point = Vector2(_rng.randf_range(-limit, limit), _rng.randf_range(-limit, limit))
+			if GROVE_RECT.grow(2.5).has_point(point) or point.length() < CAMP_RADIUS + 3.0:
 				continue
-			if point.distance_to(GROVE_GATE) < 200.0:
+			if point.distance_to(GROVE_GATE) < 7.0:
 				continue
-		if _is_clear(point, 80.0):
+		if _is_clear(point, 2.2):
 			return point
 	return Vector2.INF
 
 
 func _is_clear(point: Vector2, min_distance: float) -> bool:
 	for resource in resources:
-		if resource.position.distance_to(point) < min_distance + resource.radius:
+		if Vector2(resource.position.x, resource.position.z).distance_to(point) < min_distance + resource.radius:
 			return false
 	return true
 
@@ -243,29 +289,17 @@ func _spawn_boar() -> void:
 		var point := _random_point(false)
 		if point == Vector2.INF:
 			continue
-		if active and point.distance_to(active.global_position) < 600.0:
+		if active and _flat_distance(_ground(point), active.global_position) < 25.0:
 			continue
 		var boar := Boarcupine.new()
 		boar.family = members
 		boar.camp_radius = CAMP_RADIUS
 		boar.world_half = WORLD_HALF
-		boar.position = point
-		_world.add_child(boar)
+		boar.position = _ground(point) + Vector3.UP * 0.2
+		add_child(boar)
 		boars.append(boar)
 		boar.died.connect(_on_boar_died)
 		return
-
-
-func _build_camera() -> void:
-	_camera = Camera2D.new()
-	_camera.position_smoothing_enabled = true
-	_camera.position_smoothing_speed = 6.0
-	_camera.limit_left = int(-WORLD_HALF - 200)
-	_camera.limit_top = int(-WORLD_HALF - 200)
-	_camera.limit_right = int(WORLD_HALF + 200)
-	_camera.limit_bottom = int(WORLD_HALF + 200)
-	add_child(_camera)
-	_camera.make_current()
 
 
 func _build_hud() -> void:
@@ -276,6 +310,7 @@ func _build_hud() -> void:
 	_hud.action_pressed.connect(_do_action)
 	_hud.eat_pressed.connect(_do_eat)
 	_hud.switch_next_pressed.connect(_switch_next)
+	_hud.view_pressed.connect(_cycle_camera)
 	GameState.message.connect(_hud.toast)
 	GameState.inventory_changed.connect(_hud.update_inventory)
 	_hud.update_inventory()
@@ -295,9 +330,30 @@ func _advance_time(delta: float) -> void:
 	var night := is_night()
 	for boar in boars:
 		boar.aggressive = night
-	_sky.color = _sky_gradient.sample(time_of_day)
-	_light.energy = clampf((1.0 - _sky.color.v) * 1.8, 0.0, 1.0) * 0.8
+	_update_lighting()
 	_hud.update_day(day, _phase_name(), night)
+
+
+## Moves the sun across the sky and tints the sky, light and fog for the time of day.
+func _update_lighting() -> void:
+	var t := time_of_day
+	var elevation := (t - 0.25) * TAU  # 0 at dawn, PI/2 at noon, PI at dusk
+	var daylight := clampf(sin(elevation) * 3.0, 0.0, 1.0)
+	_sun.rotation = Vector3(-elevation, 0.5, 0.0)
+	_sun.light_energy = daylight * 1.15
+	_sun.light_color = _palette.sun.sample(t)
+	_sun.visible = daylight > 0.0
+	var darkness := 1.0 - daylight
+	_moon.light_energy = darkness * 0.35
+	_moon.visible = darkness > 0.0
+	_glow.light_energy = darkness * 1.4
+	_sky_material.sky_top_color = _palette.sky_top.sample(t)
+	_sky_material.sky_horizon_color = _palette.sky_horizon.sample(t)
+	_sky_material.ground_horizon_color = _palette.sky_horizon.sample(t).darkened(0.2)
+	_sky_material.ground_bottom_color = _palette.sky_top.sample(t).darkened(0.4)
+	_environment.ambient_light_color = _palette.ambient.sample(t)
+	_environment.ambient_light_energy = 0.55 + daylight * 0.25
+	_environment.fog_light_color = _palette.sky_horizon.sample(t)
 
 
 func is_night() -> bool:
@@ -317,16 +373,20 @@ func _phase_name() -> String:
 
 
 func _read_movement() -> void:
-	var direction := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	var input := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	if _hud.joystick.output != Vector2.ZERO:
-		direction = _hud.joystick.output
+		input = _hud.joystick.output
+	var direction := _rig.right() * input.x - _rig.forward() * input.y
+	var first_person := _rig.mode == CameraRig.Mode.FIRST_PERSON
 	for member in members:
-		member.move_input = direction if member == active and not _retreating else Vector2.ZERO
+		var controlled := member == active and not _retreating
+		member.move_input = direction if controlled else Vector3.ZERO
+		member.look_direction = _rig.forward() if controlled and first_person else Vector3.ZERO
 
 
 func _update_camp_flags() -> void:
 	for member in members:
-		member.in_camp = member.global_position.length() < CAMP_RADIUS
+		member.in_camp = _flat_distance(member.global_position, Vector3.ZERO) < CAMP_RADIUS
 
 
 func _update_boar_respawns(delta: float) -> void:
@@ -348,43 +408,72 @@ func _check_hunger() -> void:
 			_hungry_warned[member] = false
 
 
+func _flat_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+# --- Camera ---------------------------------------------------------------
+
+func _cycle_camera() -> void:
+	_rig.cycle_mode()
+	_apply_camera_mode()
+	GameState.notify(CameraRig.MODE_NAMES[_rig.mode])
+
+
+func _apply_camera_mode() -> void:
+	var first_person := _rig.mode == CameraRig.Mode.FIRST_PERSON
+	for member in members:
+		member.set_first_person(first_person and member == active)
+	_hud.set_crosshair(first_person)
+	if _rig.mode == CameraRig.Mode.OVERVIEW:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
 # --- Actions --------------------------------------------------------------
 
 ## Finds what the active member should act on, in order of urgency: a creature to attack,
-## then a knocked-out family member to help up, then the nearest thing to gather.
+## then a knocked-out family member to help up, then something to gather.
+## Things in front of the member are preferred, so in first person you act on what you look at.
 func _find_target() -> Dictionary:
 	if active == null or active.is_down:
 		return {}
-	var me := active.global_position
 	var my_radius := FamilyMember.RADIUS * active.size_scale
 
 	var living_boars := boars.filter(func(boar: Boarcupine) -> bool: return boar.is_alive())
-	var boar: Node2D = _nearest_in_range(me, living_boars, func(_node: Node2D) -> float: return Boarcupine.RADIUS + my_radius)
+	var boar: Node3D = _nearest_in_range(living_boars, func(_node: Node3D) -> float: return Boarcupine.RADIUS + my_radius)
 	if boar:
 		return {"kind": "boar", "node": boar}
 
 	var downed := members.filter(func(member: FamilyMember) -> bool: return member != active and member.is_down)
-	var member: Node2D = _nearest_in_range(me, downed, func(_node: Node2D) -> float: return 30.0)
+	var member: Node3D = _nearest_in_range(downed, func(_node: Node3D) -> float: return 0.9)
 	if member:
 		return {"kind": "revive", "node": member}
 
 	var available := resources.filter(func(resource: ResourceNode) -> bool: return resource.is_available())
-	var resource: Node2D = _nearest_in_range(me, available, func(node: Node2D) -> float: return (node as ResourceNode).radius + my_radius)
+	var resource: Node3D = _nearest_in_range(available, func(node: Node3D) -> float: return (node as ResourceNode).radius + my_radius)
 	if resource:
 		return {"kind": "resource", "node": resource}
 	return {}
 
 
-## Returns the node closest to `point` whose edge is within ACTION_RANGE, or null.
+## Returns the best node within ACTION_RANGE of the active member, or null.
 ## `reach` gives the extra distance covered by each node's size.
-func _nearest_in_range(point: Vector2, nodes: Array, reach: Callable) -> Node2D:
-	var best: Node2D = null
-	var best_gap := ACTION_RANGE
-	for node: Node2D in nodes:
-		var gap := point.distance_to(node.global_position) - (reach.call(node) as float)
-		if gap < best_gap:
+func _nearest_in_range(nodes: Array, reach: Callable) -> Node3D:
+	var best: Node3D = null
+	var best_score := INF
+	var me := active.global_position
+	var facing_weight := 1.5 if _rig.mode == CameraRig.Mode.FIRST_PERSON else 0.5
+	for node: Node3D in nodes:
+		var offset := node.global_position - me
+		offset.y = 0.0
+		var gap := offset.length() - (reach.call(node) as float)
+		if gap > ACTION_RANGE:
+			continue
+		var in_front := active.facing.dot(offset.normalized()) if offset.length() > 0.01 else 1.0
+		var score := gap + (1.0 - in_front) * facing_weight
+		if score < best_score:
 			best = node
-			best_gap = gap
+			best_score = score
 	return best
 
 
@@ -408,20 +497,20 @@ func _do_action() -> void:
 	if target.is_empty():
 		return
 	active.action_cooldown = 0.4
-	var node: Node2D = target.node
-	active.play_attack(active.global_position.direction_to(node.global_position))
+	var node: Node3D = target.node
+	active.play_attack(node.global_position - active.global_position)
 	match target.kind:
 		"boar":
 			(node as Boarcupine).take_hit(active.strength, active)
 		"revive":
 			var member := node as FamilyMember
 			member.revive(member.max_health * 0.3)
-			_float_text(member.global_position + Vector2(0, -60), "Back on their feet!", Color(0.6, 1, 0.6))
+			_float_text(member.global_position + Vector3.UP * 2.0, "Back on their feet!", Color(0.6, 1, 0.6))
 		"resource":
 			var result := (node as ResourceNode).interact(active)
 			if result.has("item"):
 				GameState.add_item(result.item, result.amount)
-				_float_text(node.global_position + Vector2(0, -50),
+				_float_text(node.global_position + Vector3.UP * 1.8,
 					"+%d %s" % [result.amount, GameState.ITEM_NAMES[result.item]], Color(1, 0.95, 0.6))
 			if result.has("message"):
 				GameState.notify(result.message)
@@ -438,15 +527,15 @@ func _do_eat() -> void:
 		GameState.notify("No food! Pick berries or hunt a Boarcupine.")
 		return
 	active.eat(amount)
-	_float_text(active.global_position + Vector2(0, -70), "Yum! +%d food" % int(amount), Color(1, 0.75, 0.4))
+	_float_text(active.global_position + Vector3.UP * 2.3, "Yum! +%d food" % int(amount), Color(1, 0.75, 0.4))
 
 
-func _float_text(point: Vector2, text: String, color: Color) -> void:
+func _float_text(point: Vector3, text: String, color: Color) -> void:
 	var label := FloatingText.new()
 	label.text = text
-	label.color = color
+	label.modulate = color
 	label.position = point
-	_effects.add_child(label)
+	add_child(label)
 
 
 # --- Switching and getting knocked out -----------------------------------
@@ -462,6 +551,9 @@ func _switch_to(index: int) -> void:
 	for other in members:
 		other.is_active = other == member
 		other.leader = null if other == member else member
+	_rig.target = member
+	_rig.snap()
+	_apply_camera_mode()
 
 
 func _switch_next() -> void:
@@ -495,7 +587,8 @@ func _retreat() -> void:
 func _finish_retreat() -> void:
 	for i in members.size():
 		var member := members[i]
-		member.global_position = Vector2(-40 + 80 * i, 100)
+		member.global_position = _ground(Vector2(-1.2 + 2.4 * i, 4.0)) + Vector3.UP * 0.2
+		member.velocity = Vector3.ZERO
 		member.revive(member.max_health * 0.5)
 		member.hunger = maxf(member.hunger, 40.0)
 	GameState.lose_half_supplies()
@@ -511,5 +604,5 @@ func _finish_retreat() -> void:
 func _on_boar_died(boar: Boarcupine) -> void:
 	boars.erase(boar)
 	GameState.add_item("meat", 3)
-	_float_text(boar.global_position + Vector2(0, -50), "+3 Meat", Color(1, 0.7, 0.6))
+	_float_text(boar.global_position + Vector3.UP * 1.8, "+3 Meat", Color(1, 0.7, 0.6))
 	_boar_respawns.append(BOAR_RESPAWN_TIME)

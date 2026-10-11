@@ -68,10 +68,20 @@ func _setup_input() -> void:
 	_add_action("switch_1", [KEY_1])
 	_add_action("switch_2", [KEY_2])
 	_add_action("toggle_touch_ui", [KEY_F2])
+	_add_action("camera_mode", [KEY_V], [JOY_BUTTON_Y])
+	_add_action("free_mouse", [KEY_ESCAPE])
+	_add_action("look_left", [])
+	_add_action("look_right", [])
+	_add_action("look_up", [])
+	_add_action("look_down", [])
 	_add_axis("move_left", JOY_AXIS_LEFT_X, -1.0)
 	_add_axis("move_right", JOY_AXIS_LEFT_X, 1.0)
 	_add_axis("move_up", JOY_AXIS_LEFT_Y, -1.0)
 	_add_axis("move_down", JOY_AXIS_LEFT_Y, 1.0)
+	_add_axis("look_left", JOY_AXIS_RIGHT_X, -1.0)
+	_add_axis("look_right", JOY_AXIS_RIGHT_X, 1.0)
+	_add_axis("look_up", JOY_AXIS_RIGHT_Y, -1.0)
+	_add_axis("look_down", JOY_AXIS_RIGHT_Y, 1.0)
 
 
 func _add_action(action: String, keys: Array, buttons: Array = []) -> void:
