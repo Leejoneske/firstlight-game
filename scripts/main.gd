@@ -22,6 +22,7 @@ var day := 1
 
 var _rng := RandomNumberGenerator.new()
 var _terrain: Terrain
+var _scenery: Scenery
 var _rig: CameraRig
 var _hud: Hud
 var _environment: Environment
@@ -41,6 +42,7 @@ func _ready() -> void:
 	_build_world()
 	_spawn_family()
 	_spawn_resources()
+	_scenery.build_ground_cover()
 	for i in BOAR_COUNT:
 		_spawn_boar()
 	_rig = CameraRig.new()
@@ -161,6 +163,12 @@ func _build_world() -> void:
 	_terrain.flat_spots = [Vector3(0, 0, CAMP_RADIUS + 2.0), Vector3(GROVE_GATE.x, GROVE_GATE.y, 5.0)]
 	add_child(_terrain)
 	_terrain.build(_rng.randi())
+	_scenery = Scenery.new()
+	_scenery.terrain = _terrain
+	_scenery.half_size = WORLD_HALF
+	_scenery.is_free = _is_open_ground
+	add_child(_scenery)
+	_scenery.build_landmarks(_rng.randi())
 
 	# A ridge closes off the hidden grove. Its only way in is blocked by a boulder.
 	var gx := GROVE_RECT.position.x
@@ -194,6 +202,8 @@ func _spawn_family() -> void:
 	krag.fur_color = Color(0.5, 0.33, 0.2)
 	krag.hair_color = Color(0.15, 0.1, 0.07)
 	krag.follow_side = -1.0
+	krag.bulk = 1.3
+	krag.hair_style = "beard"
 
 	var zee := FamilyMember.new()
 	zee.member_name = "Zee"
@@ -208,6 +218,8 @@ func _spawn_family() -> void:
 	zee.fur_color = Color(0.78, 0.58, 0.32)
 	zee.hair_color = Color(0.85, 0.38, 0.15)
 	zee.follow_side = 1.0
+	zee.bulk = 0.9
+	zee.hair_style = "mane"
 
 	for i in 2:
 		var member: FamilyMember = [krag, zee][i]
@@ -279,8 +291,21 @@ func _random_point(in_grove: bool) -> Vector2:
 
 
 func _is_clear(point: Vector2, min_distance: float) -> bool:
+	if _scenery.blocks(point, min_distance * 0.5):
+		return false
 	for resource in resources:
 		if Vector2(resource.position.x, resource.position.z).distance_to(point) < min_distance + resource.radius:
+			return false
+	return true
+
+
+## True if a spot is away from the camp, the grove entrance and anything gatherable.
+## Used to keep decorations out of the way.
+func _is_open_ground(point: Vector2, radius: float) -> bool:
+	if point.length() < CAMP_RADIUS + 1.0 + radius or point.distance_to(GROVE_GATE) < 5.0 + radius:
+		return false
+	for resource in resources:
+		if Vector2(resource.position.x, resource.position.z).distance_to(point) < resource.radius + radius:
 			return false
 	return true
 
@@ -341,7 +366,7 @@ func _update_lighting() -> void:
 	var elevation := (t - 0.25) * TAU  # 0 at dawn, PI/2 at noon, PI at dusk
 	var daylight := clampf(sin(elevation) * 3.0, 0.0, 1.0)
 	_sun.rotation = Vector3(-elevation, 0.5, 0.0)
-	_sun.light_energy = daylight * 0.9
+	_sun.light_energy = daylight * 0.78
 	_sun.light_color = _palette.sun.sample(t)
 	_sun.visible = daylight > 0.0
 	var darkness := 1.0 - daylight
@@ -353,7 +378,7 @@ func _update_lighting() -> void:
 	_sky_material.ground_horizon_color = _palette.sky_horizon.sample(t).darkened(0.2)
 	_sky_material.ground_bottom_color = _palette.sky_top.sample(t).darkened(0.4)
 	_environment.ambient_light_color = _palette.ambient.sample(t)
-	_environment.ambient_light_energy = 0.45 + daylight * 0.15
+	_environment.ambient_light_energy = 0.42 + daylight * 0.1
 	_environment.fog_light_color = _palette.sky_horizon.sample(t)
 
 

@@ -12,6 +12,7 @@ var grove_rect := Rect2()  ## Area (x, z) coloured as green grove.
 
 var _noise := FastNoiseLite.new()
 var _detail := FastNoiseLite.new()
+var _patches := FastNoiseLite.new()  ## Where the ground is clay, dust or dry grass.
 var _extent := 0.0
 var _samples := 0
 var _heights := PackedFloat32Array()
@@ -22,6 +23,8 @@ func build(seed_value: int) -> void:
 	_noise.frequency = 0.018
 	_detail.seed = seed_value + 1
 	_detail.frequency = 0.09
+	_patches.seed = seed_value + 2
+	_patches.frequency = 0.035
 	_extent = half_size + BORDER
 	_samples = int(_extent * 2.0 / CELL) + 1
 	_heights.resize(_samples * _samples)
@@ -32,6 +35,13 @@ func build(seed_value: int) -> void:
 	collision_mask = 0
 	_build_mesh()
 	_build_collision()
+
+
+## How grassy the ground is at a point, from 0 (bare) to 1 (dry grass).
+func grassiness(x: float, z: float) -> float:
+	if grove_rect.has_point(Vector2(x, z)):
+		return 1.0
+	return smoothstep(0.15, 0.5, -_patches.get_noise_2d(x + 40.0, z - 25.0))
 
 
 ## Ground height at a point, matching the terrain mesh.
@@ -87,17 +97,34 @@ func _add_face(tool: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
 		normal = -normal
 	var center := (a + b + c) / 3.0
 	var jitter := (hash(Vector2i(int(center.x * 7.0), int(center.z * 7.0))) % 100) / 100.0 - 0.5
-	var color := Color(0.78, 0.6, 0.4)
-	if grove_rect.has_point(Vector2(center.x, center.z)):
-		color = Color(0.45, 0.62, 0.3)
-	if normal.y < 0.8 or center.y > 6.0:
-		color = Color(0.6, 0.47, 0.36).lerp(Color(0.52, 0.48, 0.45), clampf(center.y / 30.0, 0.0, 1.0))
+	var color := _ground_color(center, normal)
 	color = color.lightened(jitter * 0.12) if jitter > 0.0 else color.darkened(-jitter * 0.12)
 	tool.set_color(color)
 	tool.set_normal(normal)
 	tool.add_vertex(a)
 	tool.add_vertex(b)
 	tool.add_vertex(c)
+
+
+## Sandy ground with patches of red clay, pale dust and dry grass; layered red rock on
+## slopes and mountains; lush green in the hidden grove.
+func _ground_color(center: Vector3, normal: Vector3) -> Color:
+	const SAND := Color(0.74, 0.55, 0.36)
+	const CLAY := Color(0.7, 0.42, 0.28)
+	const DUST := Color(0.8, 0.66, 0.47)
+	const DRY_GRASS := Color(0.64, 0.6, 0.33)
+	const ROCK := Color(0.62, 0.38, 0.26)
+	if normal.y < 0.82 or center.y > 6.0:
+		# Rock in horizontal bands, like layered canyon walls
+		var band := sin(center.y * 1.3 + _detail.get_noise_2d(center.x, center.z) * 2.0)
+		var rock := ROCK.lerp(Color(0.74, 0.5, 0.34), band * 0.5 + 0.5)
+		return rock.lerp(Color(0.55, 0.47, 0.42), clampf((center.y - 12.0) / 30.0, 0.0, 1.0))
+	if grove_rect.has_point(Vector2(center.x, center.z)):
+		return Color(0.42, 0.6, 0.28).lerp(Color(0.5, 0.66, 0.3), _patches.get_noise_2d(center.x * 3.0, center.z * 3.0) * 0.5 + 0.5)
+	var patch := _patches.get_noise_2d(center.x, center.z)
+	var color := SAND.lerp(CLAY, smoothstep(0.2, 0.55, patch))
+	color = color.lerp(DUST, smoothstep(-0.3, -0.6, patch) * 0.8)
+	return color.lerp(DRY_GRASS, grassiness(center.x, center.z) * 0.55)
 
 
 func _build_collision() -> void:

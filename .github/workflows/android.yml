@@ -56,10 +56,11 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}" > /dev/null
           pip install scons
           cd godot-src
-          scons platform=android profile="$GITHUB_WORKSPACE/build/android_template.py" -j"$(nproc)"
+          scons platform=android target=template_release arch=arm64 profile="$GITHUB_WORKSPACE/build/android_template.py" -j"$(nproc)"
           cd platform/android/java
           ./gradlew generateGodotTemplates -Pcompress_native_libraries=true
           mkdir -p "$GITHUB_WORKSPACE/template"
+          ls -la "$GITHUB_WORKSPACE/godot-src/bin/"
           cp "$GITHUB_WORKSPACE/godot-src/bin/android_release.apk" "$GITHUB_WORKSPACE/template/"
 
       - name: Download the Godot editor

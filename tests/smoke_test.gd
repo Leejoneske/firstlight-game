@@ -129,7 +129,7 @@ func _run() -> void:
 	_main._switch_to(1)
 	_main._rig.set_mode(CameraRig.Mode.FIRST_PERSON)
 	_main._apply_camera_mode()
-	await _frames(2)
+	await _frames(4)
 	_check(not zee.get("_model").visible and krag.get("_model").visible, "first person hides only the active body")
 	var eye := zee.global_position.y + zee.eye_height()
 	_check(absf(_main._rig.camera.global_position.y - eye) < 0.3, "first-person camera sits at eye height")

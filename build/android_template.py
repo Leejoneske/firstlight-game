@@ -3,8 +3,7 @@
 # Only features the game does not use are switched off. If a new feature needs one
 # of these modules (e.g. navigation or video), re-enable it here.
 
-target = "template_release"
-arch = "arm64"
+# Note: target and arch are passed on the scons command line (profiles can't set them).
 optimize = "size"
 lto = "thin"
 debug_symbols = "no"

@@ -53,6 +53,7 @@ func set_mode(new_mode: Mode) -> void:
 			pitch = -0.1
 		Mode.OVERVIEW:
 			pitch = OVERVIEW_PITCH
+	_apply_arm()
 	snap()
 
 
@@ -100,6 +101,11 @@ func _process(delta: float) -> void:
 	else:
 		global_position = global_position.lerp(focus, clampf(1.0 - exp(-10.0 * delta), 0.0, 1.0))
 	rotation = Vector3(pitch, yaw, 0.0)
+	_apply_arm()
+
+
+## Sets how far behind the focus point the camera sits for the current view.
+func _apply_arm() -> void:
 	match mode:
 		Mode.THIRD_PERSON:
 			_arm.spring_length = third_distance

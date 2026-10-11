@@ -25,7 +25,9 @@ const TELEPORT_DISTANCE := 25.0  ## Followers this far behind catch up instantly
 @export var can_climb := false
 @export var hunger_rate := 0.4  ## Hunger lost per second.
 @export var size_scale := 1.0
-@export var follow_side := 1.0  ## Which side of the leader to walk on (-1 left, 1 right).
+@export var follow_side := 1.0
+@export var bulk := 1.0  ## Build: above 1 is broader and stockier.
+@export var hair_style := ""  ## "beard", "mane" or "" for short hair.  ## Which side of the leader to walk on (-1 left, 1 right).
 
 var health := 0.0
 var hunger := MAX_HUNGER
@@ -47,6 +49,8 @@ var _model: Node3D
 var _body: Node3D
 var _legs: Array[Node3D] = []
 var _arms: Array[Node3D] = []
+var _head: Node3D
+var _idle_time := 0.0
 var _skin_parts: Array[MeshInstance3D] = []
 var _name_tag: Label3D
 var _sleep_tag: Label3D
@@ -174,40 +178,88 @@ func _build_model() -> void:
 	add_child(_model)
 	_body = Node3D.new()
 	_model.add_child(_body)
+	var w := bulk  # Broader shoulders and chest for heavier builds
+	var dark_fur := fur_color.darkened(0.35)
+	var leather := Color(0.32, 0.22, 0.15)
 
-	# Legs and arms hang from pivots so they can swing
+	# Legs with bare feet, hanging from hip pivots so they can swing
 	for side in [-1.0, 1.0]:
 		var hip := Node3D.new()
-		hip.position = Vector3(side * 0.13, 0.78, 0)
+		hip.position = Vector3(side * 0.13 * w, 0.8, 0)
 		_body.add_child(hip)
-		_skin_parts.append(MeshUtil.add_part(hip, MeshUtil.capsule(0.09, 0.8), skin_color, Vector3(0, -0.38, 0)))
+		_skin_parts.append(MeshUtil.add_part(hip, MeshUtil.capsule(0.085 * w, 0.78), skin_color, Vector3(0, -0.37, 0)))
+		_skin_parts.append(MeshUtil.add_part(hip, MeshUtil.sphere(0.1, 7, 4), skin_color, Vector3(0, -0.76, -0.06), Vector3(0.9 * w, 0.5, 1.5)))
 		_legs.append(hip)
+
+	# Fur tunic: a flared skirt with a jagged hem, a belt and a strap over one shoulder
+	MeshUtil.add_part(_body, MeshUtil.cylinder(0.24 * w, 0.33 * w, 0.42, 10), fur_color, Vector3(0, 0.88, 0), Vector3(1, 1, 0.8))
+	for i in 10:
+		var angle := i * TAU / 10.0
+		MeshUtil.add_part(_body, MeshUtil.cylinder(0.0, 0.07, 0.16, 4), fur_color,
+			Vector3(cos(angle) * 0.3 * w, 0.62, sin(angle) * 0.24 * w), Vector3.ONE, Vector3(PI, 0, 0))
+	_skin_parts.append(MeshUtil.add_part(_body, MeshUtil.capsule(0.25 * w, 0.62), skin_color, Vector3(0, 1.22, 0), Vector3(1.0, 1.0, 0.78)))
+	MeshUtil.add_part(_body, MeshUtil.capsule(0.26 * w, 0.42), fur_color, Vector3(0, 1.12, 0), Vector3(1.02, 1.0, 0.82))
+	MeshUtil.add_part(_body, MeshUtil.capsule(0.07, 0.62), fur_color, Vector3(-0.08 * w, 1.3, 0), Vector3(1.0, 1.0, 2.6), Vector3(0, 0, -0.62))
+	MeshUtil.add_part(_body, MeshUtil.cylinder(0.25 * w, 0.26 * w, 0.07, 10), leather, Vector3(0, 0.99, 0), Vector3(1, 1, 0.82))
+	for spot in [Vector3(-0.12, 0.85, -0.25), Vector3(0.16, 0.95, -0.24), Vector3(0.08, 1.15, 0.2), Vector3(-0.2, 1.2, -0.18)]:
+		MeshUtil.add_part(_body, MeshUtil.sphere(0.055, 6, 3), dark_fur, spot * Vector3(w, 1, 1), Vector3(1, 1, 0.4))
+
+	# Arms with big hands, hanging from shoulder pivots
+	for side in [-1.0, 1.0]:
 		var shoulder := Node3D.new()
-		shoulder.position = Vector3(side * 0.3, 1.25, 0)
+		shoulder.position = Vector3(side * 0.3 * w, 1.38, 0)
 		_body.add_child(shoulder)
-		_skin_parts.append(MeshUtil.add_part(shoulder, MeshUtil.capsule(0.075, 0.62), skin_color, Vector3(0, -0.27, 0)))
+		_skin_parts.append(MeshUtil.add_part(shoulder, MeshUtil.sphere(0.11 * w, 7, 4), skin_color))
+		_skin_parts.append(MeshUtil.add_part(shoulder, MeshUtil.capsule(0.075 * w, 0.62), skin_color, Vector3(0, -0.28, 0)))
+		_skin_parts.append(MeshUtil.add_part(shoulder, MeshUtil.sphere(0.085 * w, 7, 4), skin_color, Vector3(0, -0.62, 0), Vector3(1, 1.15, 0.8)))
 		_arms.append(shoulder)
 
-	# Fur tunic with spots
-	MeshUtil.add_part(_body, MeshUtil.capsule(0.27, 0.8), fur_color, Vector3(0, 1.05, 0), Vector3(1.0, 1.0, 0.85))
-	for spot in [Vector3(-0.12, 1.12, -0.22), Vector3(0.14, 0.92, -0.21), Vector3(0.05, 1.25, 0.22)]:
-		MeshUtil.add_part(_body, MeshUtil.sphere(0.06, 6, 3), fur_color.darkened(0.35), spot, Vector3(1, 1, 0.4))
-
-	# Head: hair behind, face in front (the model faces -Z)
-	_skin_parts.append(MeshUtil.add_part(_body, MeshUtil.sphere(0.2), skin_color, Vector3(0, 1.58, 0)))
-	MeshUtil.add_part(_body, MeshUtil.sphere(0.215), hair_color, Vector3(0, 1.64, 0.05), Vector3(1.05, 0.9, 1.0))
-	MeshUtil.add_part(_body, MeshUtil.sphere(0.12, 6, 4), hair_color, Vector3(0, 1.5, 0.17), Vector3(1.4, 1.6, 1.0))
+	# Head (the model faces -Z)
+	var head := Node3D.new()
+	head.position = Vector3(0, 1.66, 0)
+	_body.add_child(head)
+	_head = head
+	_skin_parts.append(MeshUtil.add_part(head, MeshUtil.sphere(0.2, 10, 6), skin_color, Vector3.ZERO, Vector3(1.0, 1.05, 1.0)))
+	_skin_parts.append(MeshUtil.add_part(head, MeshUtil.sphere(0.16, 8, 5), skin_color, Vector3(0, -0.09, -0.04), Vector3(1.05 * w, 0.75, 1.0)))
+	MeshUtil.add_part(head, MeshUtil.sphere(0.055, 7, 4), skin_color.darkened(0.1), Vector3(0, -0.02, -0.2), Vector3(1.1, 0.9, 1.0))
 	for side in [-1.0, 1.0]:
-		MeshUtil.add_part(_body, MeshUtil.sphere(0.03, 6, 3), Color(0.08, 0.05, 0.03), Vector3(side * 0.075, 1.6, -0.18))
-	MeshUtil.add_part(_body, MeshUtil.sphere(0.04, 6, 3), skin_color.darkened(0.08), Vector3(0, 1.55, -0.2))
+		MeshUtil.add_part(head, MeshUtil.sphere(0.045, 7, 4), Color(0.97, 0.95, 0.9), Vector3(side * 0.075, 0.04, -0.17))
+		MeshUtil.add_part(head, MeshUtil.sphere(0.024, 6, 3), Color(0.12, 0.08, 0.05), Vector3(side * 0.075, 0.04, -0.205))
+		MeshUtil.add_part(head, MeshUtil.capsule(0.022, 0.12), hair_color.darkened(0.2), Vector3(side * 0.08, 0.11, -0.18), Vector3.ONE, Vector3(0, 0, PI / 2.0 + side * 0.25))
+		_skin_parts.append(MeshUtil.add_part(head, MeshUtil.sphere(0.05, 6, 3), skin_color, Vector3(side * 0.2, 0.0, 0), Vector3(0.5, 1.0, 0.8)))
+	MeshUtil.add_part(head, MeshUtil.box(Vector3(0.1, 0.018, 0.02)), Color(0.35, 0.15, 0.12), Vector3(0, -0.12, -0.18))
+	_build_hair(head)
 
-	_name_tag = MeshUtil.label(member_name, 36)
-	_name_tag.position.y = 2.15 * size_scale
+	_name_tag = MeshUtil.label(member_name, 26)
+	_name_tag.position.y = 2.25 * size_scale
 	add_child(_name_tag)
 	_sleep_tag = MeshUtil.label("Zz", 48, Color(0.8, 0.9, 1.0))
 	_sleep_tag.position.y = 1.0
 	_sleep_tag.visible = false
 	add_child(_sleep_tag)
+
+
+func _build_hair(head: Node3D) -> void:
+	match hair_style:
+		"beard":
+			# Short bushy hair and a thick beard
+			MeshUtil.add_part(head, MeshUtil.sphere(0.22, 9, 5), hair_color, Vector3(0, 0.08, 0.04), Vector3(1.05, 0.85, 1.05))
+			MeshUtil.add_part(head, MeshUtil.sphere(0.2, 8, 5), hair_color, Vector3(0, -0.17, -0.06), Vector3(1.1, 0.9, 0.85))
+			MeshUtil.add_part(head, MeshUtil.sphere(0.12, 7, 4), hair_color, Vector3(0, -0.3, -0.1), Vector3(1.0, 1.0, 0.8))
+			# Tooth necklace
+			for i in 7:
+				var angle := PI + 0.35 + i * 0.4
+				var point := Vector3(cos(angle) * 0.22, -0.42 - sin(i * 0.45) * 0.04, sin(angle) * 0.17)
+				MeshUtil.add_part(head, MeshUtil.cylinder(0.0, 0.025, 0.08, 4), Color(0.95, 0.92, 0.82), point, Vector3.ONE, Vector3(PI, 0, 0))
+		"mane":
+			# A big wild mane with a bone clip
+			for blob in [Vector4(0, 0.1, 0.06, 0.24), Vector4(-0.17, 0.0, 0.1, 0.17), Vector4(0.17, 0.0, 0.1, 0.17),
+					Vector4(0, -0.05, 0.2, 0.2), Vector4(-0.12, -0.2, 0.18, 0.15), Vector4(0.12, -0.2, 0.18, 0.15), Vector4(0, -0.3, 0.2, 0.14)]:
+				MeshUtil.add_part(head, MeshUtil.sphere(blob.w, 8, 5), hair_color, Vector3(blob.x, blob.y, blob.z))
+			MeshUtil.add_part(head, MeshUtil.sphere(0.12, 7, 4), hair_color, Vector3(0, 0.17, -0.1), Vector3(1.4, 0.6, 1.0))
+			MeshUtil.add_part(head, MeshUtil.cylinder(0.025, 0.025, 0.32, 5), Color(0.95, 0.92, 0.82), Vector3(0.12, 0.2, 0.08), Vector3.ONE, Vector3(0.3, 0, 1.2))
+		_:
+			MeshUtil.add_part(head, MeshUtil.sphere(0.215, 9, 5), hair_color, Vector3(0, 0.06, 0.05), Vector3(1.05, 0.9, 1.0))
 
 
 func _animate(delta: float, speed: float) -> void:
@@ -232,6 +284,11 @@ func _animate(delta: float, speed: float) -> void:
 	if _attack_anim > 0.0:
 		_arms[1].rotation.x = -1.9 * (_attack_anim / 0.25)
 	_body.position.y = absf(sin(_walk_phase)) * 0.05
+	_idle_time += delta
+	var breath := sin(_idle_time * 2.2) * (1.0 - clampf(speed / 2.0, 0.0, 1.0))
+	_body.scale = Vector3(1.0 + breath * 0.012, 1.0 + breath * 0.008, 1.0 + breath * 0.012)
+	_head.rotation.x = breath * 0.04
+	_head.rotation.y = sin(_idle_time * 0.5) * 0.15 * (1.0 - clampf(speed, 0.0, 1.0))
 
 	var flashing := _hurt_flash > 0.0 and int(_hurt_flash * 20.0) % 2 == 0
 	if flashing != _was_flashing:
