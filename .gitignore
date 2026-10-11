@@ -1,0 +1,16 @@
+# Godot
+.godot/
+export/
+*.apk
+*.aab
+*.exe
+*.pck
+
+# Export settings can contain keystore paths and passwords
+export_presets.cfg
+export_credentials.cfg
+*.keystore
+
+# OS
+.DS_Store
+Thumbs.db
