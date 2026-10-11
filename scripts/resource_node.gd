@@ -96,6 +96,7 @@ func interact(member: FamilyMember) -> Dictionary:
 	if not is_available():
 		return {}
 	_shake = 0.35
+	set_process(true)
 	if not can_use(member):
 		if kind == Kind.BOULDER:
 			return {"message": "Too heavy for %s. Switch to someone stronger!" % member.member_name}
@@ -123,6 +124,9 @@ func _deplete() -> void:
 
 
 func _process(delta: float) -> void:
+	if _shake <= 0.0 and uses_left > 0:
+		set_process(false)  # Nothing to animate or regrow
+		return
 	if _shake > 0.0:
 		_shake -= delta
 		_visual.rotation.z = sin(_shake * 50.0) * 0.06 * _shake / 0.35

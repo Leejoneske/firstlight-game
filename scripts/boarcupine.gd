@@ -48,6 +48,7 @@ var _stars: Node3D
 var _body_parts: Array[MeshInstance3D] = []
 var _was_flashing := false
 var _custom_model: Node3D
+static var _flash_material: StandardMaterial3D
 var _anim: AnimationPlayer
 
 
@@ -234,18 +235,16 @@ func _build_model() -> void:
 		var hip := Node3D.new()
 		hip.position = corner
 		_model.add_child(hip)
-		_body_parts.append(MeshUtil.add_part(hip, MeshUtil.cylinder(0.07, 0.06, 0.45, 6), brown.darkened(0.3), Vector3(0, -0.22, 0)))
+		MeshUtil.add_part(hip, MeshUtil.cylinder(0.07, 0.06, 0.45, 6), brown.darkened(0.3), Vector3(0, -0.22, 0))
 		_legs.append(hip)
-	_body_parts.append(MeshUtil.add_part(_model, MeshUtil.sphere(0.5), brown, Vector3(0, 0.72, 0), Vector3(0.85, 0.65, 1.15)))
-	_body_parts.append(MeshUtil.add_part(_model, MeshUtil.sphere(0.27), brown.lightened(0.05), Vector3(0, 0.75, -0.62)))
+	MeshUtil.add_part(_model, MeshUtil.sphere(0.5), brown, Vector3(0, 0.72, 0), Vector3(0.85, 0.65, 1.15))
+	MeshUtil.add_part(_model, MeshUtil.sphere(0.27), brown.lightened(0.05), Vector3(0, 0.75, -0.62))
 	MeshUtil.add_part(_model, MeshUtil.cylinder(0.11, 0.13, 0.2, 8), Color(0.85, 0.6, 0.55), Vector3(0, 0.7, -0.88), Vector3.ONE, Vector3(PI / 2.0, 0, 0))
 	for side in [-1.0, 1.0]:
 		MeshUtil.add_part(_model, MeshUtil.cylinder(0.0, 0.035, 0.22, 5), Color(1, 0.97, 0.88), Vector3(side * 0.12, 0.66, -0.85), Vector3.ONE, Vector3(-0.6, 0, side * 0.3))
 		_eyes.append(MeshUtil.add_part(_model, MeshUtil.sphere(0.04, 6, 3), Color(0.08, 0.05, 0.03), Vector3(side * 0.13, 0.85, -0.8)))
 		MeshUtil.add_part(_model, MeshUtil.cylinder(0.0, 0.07, 0.16, 4), brown.darkened(0.2), Vector3(side * 0.15, 1.0, -0.6))
 	# Spikes along the back, pointing up and backward
-	for part in _body_parts:
-		part.set_meta("material", part.material_override)
 	var spikes := []
 	for row in 4:
 		for column in 3:
@@ -256,6 +255,13 @@ func _build_model() -> void:
 	var spike_mesh := MeshInstance3D.new()
 	spike_mesh.mesh = MeshUtil.combine(spikes)
 	_model.add_child(spike_mesh)
+	# Merge the still shapes so each boar is drawn in a few pieces instead of ~25
+	var moving: Array = _legs + _eyes
+	_body_parts.clear()
+	for group: Node3D in [_model] + _legs:
+		var merged := MeshUtil.merge_children(group, moving)
+		if merged:
+			_body_parts.append(merged)
 
 
 func _add_effects() -> void:
@@ -312,6 +318,8 @@ func _animate_shapes(speed: float) -> void:
 	var flashing := _hurt_flash > 0.0
 	if flashing != _was_flashing:
 		_was_flashing = flashing
+		if _flash_material == null:
+			_flash_material = MeshUtil.vertex_color_material().duplicate()
+			_flash_material.albedo_color = Color(1.0, 0.45, 0.4)
 		for part in _body_parts:
-			var normal: Material = part.get_meta("material")
-			part.material_override = MeshUtil.material(Color(1, 0.45, 0.4)) if flashing else normal
+			part.material_override = _flash_material if flashing else null

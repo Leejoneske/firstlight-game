@@ -33,6 +33,7 @@ var _glow: OmniLight3D
 var _boar_respawns: Array[float] = []
 var _retreating := false
 var _hungry_warned := {}
+var _lighting_timer := 0.0
 var _palette := {}  ## Gradients for sky and light colours over the day.
 
 
@@ -86,7 +87,14 @@ func _restart() -> void:
 func _apply_settings() -> void:
 	_sun.shadow_enabled = GameState.high_graphics
 	_scenery.set_ground_cover_visible(GameState.high_graphics)
-	get_viewport().scaling_3d_scale = 1.0 if GameState.high_graphics else 0.7
+	# Phones have very high-resolution screens; drawing the 3D view at a lower resolution
+	# (the interface stays sharp) is the biggest speed-up there is.
+	var phone := OS.has_feature("mobile")
+	if GameState.high_graphics:
+		get_viewport().scaling_3d_scale = 0.75 if phone else 1.0
+	else:
+		get_viewport().scaling_3d_scale = 0.55 if phone else 0.7
+	_sun.directional_shadow_max_distance = 30.0 if phone else 50.0
 
 
 func _process(delta: float) -> void:
@@ -156,6 +164,7 @@ func _build_environment() -> void:
 	_environment.background_mode = Environment.BG_SKY
 	_environment.sky = sky
 	_environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	_environment.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
 	_environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	_environment.fog_enabled = true
 	_environment.fog_density = 0.0018
@@ -166,7 +175,8 @@ func _build_environment() -> void:
 
 	_sun = DirectionalLight3D.new()
 	_sun.shadow_enabled = true
-	_sun.directional_shadow_max_distance = 60.0
+	_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL  # One shadow map: cheapest
+	_sun.directional_shadow_max_distance = 50.0
 	add_child(_sun)
 	_moon = DirectionalLight3D.new()
 	_moon.light_color = Color(0.6, 0.7, 1.0)
@@ -388,6 +398,11 @@ func _advance_time(delta: float) -> void:
 	elif previous < 0.75 and time_of_day >= 0.75:
 		GameState.notify("Night is coming. Head back to the cave!")
 
+	# Light changes slowly, so it's updated a few times a second rather than every frame
+	_lighting_timer -= delta
+	if _lighting_timer > 0.0 and delta > 0.0:
+		return
+	_lighting_timer = 0.25
 	var night := is_night()
 	for boar in boars:
 		boar.aggressive = night
@@ -408,6 +423,7 @@ func _update_lighting() -> void:
 	_moon.light_energy = darkness * 0.35
 	_moon.visible = darkness > 0.0
 	_glow.light_energy = darkness * 1.4
+	_glow.visible = darkness > 0.05  # A light costs extra drawing work, so only use it at night
 	_sky_material.sky_top_color = _palette.sky_top.sample(t)
 	_sky_material.sky_horizon_color = _palette.sky_horizon.sample(t)
 	_sky_material.ground_horizon_color = _palette.sky_horizon.sample(t).darkened(0.2)

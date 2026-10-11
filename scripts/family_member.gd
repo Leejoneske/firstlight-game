@@ -53,11 +53,12 @@ var _arms: Array[Node3D] = []
 var _head: Node3D
 var _eyelids: Array[MeshInstance3D] = []
 var _custom_model: Node3D
+var _flash_meshes: Array[MeshInstance3D] = []
+static var _flash_material: StandardMaterial3D
 var _anim: AnimationPlayer
 var _blink_meshes: Array[MeshInstance3D] = []
 var _blink_timer := 2.0
 var _idle_time := 0.0
-var _skin_parts: Array[MeshInstance3D] = []
 var _name_tag: Label3D
 var _sleep_tag: Label3D
 var _was_flashing := false
@@ -201,8 +202,8 @@ func _build_model() -> void:
 		var hip := Node3D.new()
 		hip.position = Vector3(side * 0.13 * w, 0.8, 0)
 		_body.add_child(hip)
-		_skin_parts.append(MeshUtil.add_part(hip, MeshUtil.capsule(0.085 * w, 0.78), skin_color, Vector3(0, -0.37, 0)))
-		_skin_parts.append(MeshUtil.add_part(hip, MeshUtil.sphere(0.1, 7, 4), skin_color, Vector3(0, -0.76, -0.06), Vector3(0.9 * w, 0.5, 1.5)))
+		MeshUtil.add_part(hip, MeshUtil.capsule(0.085 * w, 0.78), skin_color, Vector3(0, -0.37, 0))
+		MeshUtil.add_part(hip, MeshUtil.sphere(0.1, 7, 4), skin_color, Vector3(0, -0.76, -0.06), Vector3(0.9 * w, 0.5, 1.5))
 		_legs.append(hip)
 
 	# Fur tunic: a flared skirt with a jagged hem, a belt and a strap over one shoulder
@@ -211,7 +212,7 @@ func _build_model() -> void:
 		var angle := i * TAU / 10.0
 		MeshUtil.add_part(_body, MeshUtil.cylinder(0.0, 0.07, 0.16, 4), fur_color,
 			Vector3(cos(angle) * 0.3 * w, 0.62, sin(angle) * 0.24 * w), Vector3.ONE, Vector3(PI, 0, 0))
-	_skin_parts.append(MeshUtil.add_part(_body, MeshUtil.capsule(0.25 * w, 0.62), skin_color, Vector3(0, 1.22, 0), Vector3(1.0, 1.0, 0.78)))
+	MeshUtil.add_part(_body, MeshUtil.capsule(0.25 * w, 0.62), skin_color, Vector3(0, 1.22, 0), Vector3(1.0, 1.0, 0.78))
 	MeshUtil.add_part(_body, MeshUtil.capsule(0.26 * w, 0.42), fur_color, Vector3(0, 1.12, 0), Vector3(1.02, 1.0, 0.82))
 	MeshUtil.add_part(_body, MeshUtil.capsule(0.07, 0.62), fur_color, Vector3(-0.08 * w, 1.3, 0), Vector3(1.0, 1.0, 2.6), Vector3(0, 0, -0.62))
 	MeshUtil.add_part(_body, MeshUtil.cylinder(0.25 * w, 0.26 * w, 0.07, 10), leather, Vector3(0, 0.99, 0), Vector3(1, 1, 0.82))
@@ -223,9 +224,9 @@ func _build_model() -> void:
 		var shoulder := Node3D.new()
 		shoulder.position = Vector3(side * 0.3 * w, 1.38, 0)
 		_body.add_child(shoulder)
-		_skin_parts.append(MeshUtil.add_part(shoulder, MeshUtil.sphere(0.11 * w, 7, 4), skin_color))
-		_skin_parts.append(MeshUtil.add_part(shoulder, MeshUtil.capsule(0.075 * w, 0.62), skin_color, Vector3(0, -0.28, 0)))
-		_skin_parts.append(MeshUtil.add_part(shoulder, MeshUtil.sphere(0.085 * w, 7, 4), skin_color, Vector3(0, -0.62, 0), Vector3(1, 1.15, 0.8)))
+		MeshUtil.add_part(shoulder, MeshUtil.sphere(0.11 * w, 7, 4), skin_color)
+		MeshUtil.add_part(shoulder, MeshUtil.capsule(0.075 * w, 0.62), skin_color, Vector3(0, -0.28, 0))
+		MeshUtil.add_part(shoulder, MeshUtil.sphere(0.085 * w, 7, 4), skin_color, Vector3(0, -0.62, 0), Vector3(1, 1.15, 0.8))
 		_arms.append(shoulder)
 
 	# Head (the model faces -Z)
@@ -234,10 +235,19 @@ func _build_model() -> void:
 	head.scale = Vector3.ONE * 1.12  # Big cartoon heads read better on small screens
 	_body.add_child(head)
 	_head = head
-	_skin_parts.append(MeshUtil.add_part(head, MeshUtil.sphere(0.2, 10, 6), skin_color, Vector3.ZERO, Vector3(1.0, 1.05, 1.0)))
-	_skin_parts.append(MeshUtil.add_part(head, MeshUtil.sphere(0.16, 8, 5), skin_color, Vector3(0, -0.09, -0.04), Vector3(1.05 * w, 0.75, 1.0)))
+	MeshUtil.add_part(head, MeshUtil.sphere(0.2, 10, 6), skin_color, Vector3.ZERO, Vector3(1.0, 1.05, 1.0))
+	MeshUtil.add_part(head, MeshUtil.sphere(0.16, 8, 5), skin_color, Vector3(0, -0.09, -0.04), Vector3(1.05 * w, 0.75, 1.0))
 	_build_face(head)
 	_build_hair(head)
+
+	# Merge the still shapes of each moving part, so phones draw ~8 pieces instead of ~80
+	var moving: Array = [_head] + _legs + _arms + _eyelids
+	for group: Node3D in [_body, _head] + _legs + _arms:
+		var merged := MeshUtil.merge_children(group, moving)
+		if merged:
+			_flash_meshes.append(merged)
+	for lid in _eyelids:
+		lid.set_meta("rest", lid.position)
 
 
 func _add_tags() -> void:
@@ -264,7 +274,6 @@ func _build_face(head: Node3D) -> void:
 		MeshUtil.add_part(eye, MeshUtil.sphere(0.009, 5, 3), Color.WHITE, Vector3(0.012, 0.014, -0.046))
 		# Eyelid: rests above the eye and slides down to blink
 		var lid := MeshUtil.add_part(eye, MeshUtil.sphere(0.062, 10, 6), skin_color.darkened(0.04), Vector3.ZERO, Vector3(1.08, 0.3, 0.72))
-		_skin_parts.append(lid)
 		_eyelids.append(lid)
 		# Brow
 		MeshUtil.add_part(head, MeshUtil.capsule(0.03, 0.15), hair_color.darkened(0.25),
@@ -284,7 +293,7 @@ func _build_face(head: Node3D) -> void:
 	MeshUtil.add_part(head, MeshUtil.sphere(0.03, 7, 4), lip, Vector3(0, -0.127, -0.2), Vector3(1.4, 0.45, 0.6))
 	# Ears
 	for side in [-1.0, 1.0]:
-		_skin_parts.append(MeshUtil.add_part(head, MeshUtil.sphere(0.05, 6, 3), skin_color, Vector3(side * 0.2, 0.0, 0), Vector3(0.5, 1.0, 0.8)))
+		MeshUtil.add_part(head, MeshUtil.sphere(0.05, 6, 3), skin_color, Vector3(side * 0.2, 0.0, 0), Vector3(0.5, 1.0, 0.8))
 
 
 func _build_hair(head: Node3D) -> void:
@@ -340,7 +349,7 @@ func _blink(delta: float) -> void:
 		lid.visible = closed > 0.0
 		var height := lerpf(0.2, 1.08, closed)
 		lid.scale.y = height
-		lid.position.y = 0.062 * (1.0 - height)
+		lid.position = (lid.get_meta("rest", Vector3.ZERO) as Vector3) + Vector3(0, 0.062 * (1.0 - height) * 1.12, 0)
 
 
 func _animate(delta: float, speed: float) -> void:
@@ -378,6 +387,8 @@ func _animate(delta: float, speed: float) -> void:
 	var flashing := _hurt_flash > 0.0 and int(_hurt_flash * 20.0) % 2 == 0
 	if flashing != _was_flashing:
 		_was_flashing = flashing
-		var mat := MeshUtil.material(Color(1, 0.35, 0.3) if flashing else skin_color)
-		for part in _skin_parts:
-			part.material_override = mat
+		if _flash_material == null:
+			_flash_material = MeshUtil.vertex_color_material().duplicate()
+			_flash_material.albedo_color = Color(1.0, 0.45, 0.4)
+		for mesh in _flash_meshes:
+			mesh.material_override = _flash_material if flashing else null
