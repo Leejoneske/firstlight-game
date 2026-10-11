@@ -117,6 +117,10 @@ jobs:
 
       - name: Export the APK
         run: |
+          # Keep the build folders (engine source, template, signing key) out of the game
+          for folder in godot-src template signing; do
+            if [ -d "$folder" ]; then touch "$folder/.gdignore"; fi
+          done
           ./godot --headless --path . --import > /dev/null 2>&1 || true
           mkdir -p export
           GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$KEYSTORE" \
