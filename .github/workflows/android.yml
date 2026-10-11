@@ -1,0 +1,146 @@
+name: Android APK
+
+# Builds a small Android APK of the game and attaches it to a GitHub release.
+# The slimmed-down engine template (build/android_template.py) takes a while to
+# compile the first time; after that it is cached and builds take a few minutes.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.7.2"
+  NDK_VERSION: "29.0.14206865"
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out the game
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Restore the slim engine template
+        id: template-cache
+        uses: actions/cache@v4
+        with:
+          path: template/android_release.apk
+          key: android-template-${{ env.GODOT_VERSION }}-${{ hashFiles('build/android_template.py') }}
+
+      - name: Check out the Godot engine source
+        if: steps.template-cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: godotengine/godot
+          ref: ${{ env.GODOT_VERSION }}-stable
+          path: godot-src
+
+      - name: Build the slim engine template
+        if: steps.template-cache.outputs.cache-hit != 'true'
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}" > /dev/null
+          pip install scons
+          cd godot-src
+          scons platform=android profile="$GITHUB_WORKSPACE/build/android_template.py" -j"$(nproc)"
+          cd platform/android/java
+          ./gradlew generateGodotTemplates -Pcompress_native_libraries=true
+          mkdir -p "$GITHUB_WORKSPACE/template"
+          cp "$GITHUB_WORKSPACE/godot-src/bin/android_release.apk" "$GITHUB_WORKSPACE/template/"
+
+      - name: Download the Godot editor
+        run: |
+          curl -sSLo godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip
+          mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot
+          rm godot.zip
+
+      - name: Restore the signing key
+        uses: actions/cache@v4
+        with:
+          path: signing/firstlight.keystore
+          key: android-signing-key-v1
+
+      - name: Prepare signing and export settings
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          mkdir -p signing
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            # A key stored in the repository secrets (needed for app store releases)
+            echo "$KEYSTORE_BASE64" | base64 -d > signing/release.keystore
+            echo "KEYSTORE=$PWD/signing/release.keystore" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          else
+            # A test key, kept in the build cache so updates install over the previous version
+            if [ ! -f signing/firstlight.keystore ]; then
+              keytool -genkeypair -keystore signing/firstlight.keystore -storepass firstlight-test \
+                -alias firstlight -keypass firstlight-test -keyalg RSA -keysize 2048 -validity 10000 \
+                -dname "CN=Firstlight Test Build" -noprompt
+            fi
+            echo "KEYSTORE=$PWD/signing/firstlight.keystore" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=firstlight" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=firstlight-test" >> "$GITHUB_ENV"
+          fi
+
+          mkdir -p ~/.config/godot
+          cat > ~/.config/godot/editor_settings-4.7.tres <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          EOF
+
+          sed -i \
+            -e "s|^custom_template/release=.*|custom_template/release=\"$PWD/template/android_release.apk\"|" \
+            -e "s|^version/code=.*|version/code=${{ github.run_number }}|" \
+            -e "s|^version/name=.*|version/name=\"0.1.${{ github.run_number }}\"|" \
+            export_presets.cfg
+
+      - name: Export the APK
+        run: |
+          ./godot --headless --path . --import > /dev/null 2>&1 || true
+          mkdir -p export
+          GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$KEYSTORE" \
+          GODOT_ANDROID_KEYSTORE_RELEASE_USER="$KEY_ALIAS" \
+          GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="$KEY_PASSWORD" \
+            ./godot --headless --path . --export-release "Android" export/firstlight.apk
+          test -f export/firstlight.apk
+          echo "APK size: $(du -h export/firstlight.apk | cut -f1)"
+          echo "APK_SIZE=$(du -h export/firstlight.apk | cut -f1)" >> "$GITHUB_ENV"
+
+      - name: Upload the APK as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firstlight-apk
+          path: export/firstlight.apk
+
+      - name: Publish a release with the APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Firstlight test build ${{ github.run_number }}
+          make_latest: true
+          files: export/firstlight.apk
+          body: |
+            Test build ${{ github.run_number }} (${{ env.APK_SIZE }}) from commit ${{ github.sha }}.
+
+            **Install:** download `firstlight.apk` on your Android phone, open it, and allow installing from this source if asked.
+            Works on 64-bit Android phones (Android 7 or newer).

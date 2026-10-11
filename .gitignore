@@ -6,9 +6,6 @@ export/
 *.exe
 *.pck
 
-# Export settings can contain keystore paths and passwords
-export_presets.cfg
-export_credentials.cfg
 *.keystore
 
 # OS
@@ -17,3 +14,4 @@ Thumbs.db
 
 # Local screenshot tooling
 _shots.*
+export_credentials.cfg
