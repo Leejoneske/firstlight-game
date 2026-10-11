@@ -3,6 +3,7 @@ extends CharacterBody3D
 ## A family member. The player controls one at a time; the others follow the leader.
 
 signal downed
+signal hurt
 
 const MAX_HUNGER := 100.0
 const RADIUS := 0.35
@@ -53,6 +54,7 @@ var _arms: Array[Node3D] = []
 var _head: Node3D
 var _eyelids: Array[MeshInstance3D] = []
 var _custom_model: Node3D
+var _dust: CPUParticles3D
 var _flash_meshes: Array[MeshInstance3D] = []
 static var _flash_material: StandardMaterial3D
 var _anim: AnimationPlayer
@@ -77,6 +79,8 @@ func _ready() -> void:
 	shape.position.y = capsule.height / 2.0
 	add_child(shape)
 	_build_model()
+	_dust = Effects.dust_emitter()
+	add_child(_dust)
 
 
 func _physics_process(delta: float) -> void:
@@ -99,6 +103,7 @@ func _physics_process(delta: float) -> void:
 	_knockback = _knockback.move_toward(Vector3.ZERO, 22.0 * delta)
 	move_and_slide()
 
+	_dust.emitting = desired.length() > 3.0 and is_on_floor()
 	if look_direction != Vector3.ZERO and is_active:
 		facing = look_direction
 	elif desired.length() > 0.2:
@@ -136,6 +141,7 @@ func take_hit(amount: float, from_position: Vector3) -> void:
 		return
 	_hurt_flash = 0.3
 	_invulnerable = 0.7
+	hurt.emit()
 	var push := global_position - from_position
 	push.y = 0.0
 	_knockback = push.normalized() * 9.0

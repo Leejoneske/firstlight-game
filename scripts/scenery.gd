@@ -11,6 +11,28 @@ const BONE_COUNT := 7
 const LOG_COUNT := 10
 const CLOUD_COUNT := 22
 const FIRSTLIGHT_POSITION := Vector3(-35, 0, -150)
+const POND_CENTER := Vector2(44, -44)  ## An oasis pond in the hidden grove.
+const POND_RADIUS := 5.0
+const STAR_COUNT := 260
+
+const WATER_SHADER := """
+shader_type spatial;
+render_mode blend_mix, cull_disabled, specular_schlick_ggx;
+uniform vec4 shallow : source_color = vec4(0.3, 0.66, 0.66, 0.85);
+uniform vec4 deep : source_color = vec4(0.08, 0.32, 0.46, 0.95);
+void vertex() {
+	VERTEX.y += sin(TIME * 1.4 + VERTEX.x * 1.6) * 0.025 + cos(TIME * 1.1 + VERTEX.z * 2.0) * 0.025;
+}
+void fragment() {
+	float d = length(UV - vec2(0.5)) * 2.0;
+	vec3 color = mix(deep.rgb, shallow.rgb, smoothstep(0.3, 1.0, d));
+	float ripple = sin(TIME * 2.0 + UV.x * 42.0) * sin(TIME * 1.6 + UV.y * 37.0);
+	ALBEDO = color + ripple * 0.035;
+	ROUGHNESS = 0.06;
+	SPECULAR = 0.7;
+	ALPHA = d > 1.0 ? 0.0 : mix(deep.a, shallow.a * 0.6, smoothstep(0.8, 1.0, d));
+}
+"""
 
 var terrain: Terrain
 var half_size := 60.0
@@ -21,6 +43,9 @@ var _taken: Array[Vector3] = []  ## x, z and radius of scenery already placed.
 var _clouds: Node3D
 var _ground_cover: Array[Node3D] = []
 var _beacon: MeshInstance3D
+var _stars: MultiMeshInstance3D
+var _star_material: StandardMaterial3D
+var _fireflies: CPUParticles3D
 
 
 ## Places the big landmarks. Call before placing gameplay objects, which should avoid them.
@@ -41,6 +66,9 @@ func build_landmarks(seed_value: int) -> void:
 			_add_log(point)
 	_add_clouds()
 	_add_firstlight()
+	_add_pond()
+	_add_stars()
+	_add_fireflies()
 
 
 ## Scatters grass and pebbles. Call after gameplay objects are placed.
@@ -60,6 +88,13 @@ func blocks(point: Vector2, radius: float) -> bool:
 		if point.distance_to(Vector2(other.x, other.y)) < radius + other.z:
 			return true
 	return false
+
+
+## 0 in daylight, 1 at full night: shows the stars and the grove's fireflies.
+func set_darkness(darkness: float) -> void:
+	_stars.visible = darkness > 0.05
+	_star_material.albedo_color.a = clampf(darkness * 1.3 - 0.2, 0.0, 1.0)
+	_fireflies.emitting = darkness > 0.4
 
 
 func _process(delta: float) -> void:
@@ -205,6 +240,95 @@ func _add_clouds() -> void:
 	add_child(_clouds)
 	var instance := _add_multimesh(puff, transforms, colors, _clouds)
 	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+## A small oasis in the hidden grove: rippling water, stones around the shore and reeds.
+func _add_pond() -> void:
+	var center := _ground(POND_CENTER)
+	var water := MeshInstance3D.new()
+	var plane := PlaneMesh.new()
+	plane.size = Vector2.ONE * POND_RADIUS * 2.0
+	plane.subdivide_width = 10
+	plane.subdivide_depth = 10
+	water.mesh = plane
+	var material := ShaderMaterial.new()
+	var shader := Shader.new()
+	shader.code = WATER_SHADER
+	material.shader = shader
+	water.material_override = material
+	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	water.position = center + Vector3(0, 0.12, 0)
+	add_child(water)
+
+	var parts := []
+	for i in 22:
+		var angle := i * TAU / 22.0 + _rng.randf_range(-0.08, 0.08)
+		var size := _rng.randf_range(0.25, 0.5)
+		parts.append([MeshUtil.sphere(size, 6, 4), Color(0.55, 0.52, 0.48).darkened(_rng.randf() * 0.2),
+			MeshUtil.xf(Vector3(cos(angle), 0.05, sin(angle)) * (POND_RADIUS - 0.2), Vector3(1.2, 0.6, 1.0))])
+	for i in 26:
+		var angle := _rng.randf() * TAU
+		var spot := Vector3(cos(angle), 0, sin(angle)) * (POND_RADIUS + _rng.randf_range(0.1, 0.9))
+		var height := _rng.randf_range(0.6, 1.3)
+		parts.append([MeshUtil.cylinder(0.0, 0.03, height, 3), Color(0.35, 0.58, 0.3),
+			MeshUtil.xf(spot + Vector3(0, height / 2.0, 0), Vector3.ONE, Vector3(_rng.randf_range(-0.2, 0.2), 0, _rng.randf_range(-0.2, 0.2)))])
+		if i % 4 == 0:
+			parts.append([MeshUtil.capsule(0.05, 0.22), Color(0.45, 0.3, 0.18), MeshUtil.xf(spot + Vector3(0, height, 0))])
+	var shore := MeshInstance3D.new()
+	shore.mesh = MeshUtil.combine(parts)
+	shore.position = center
+	add_child(shore)
+	_taken.append(Vector3(POND_CENTER.x, POND_CENTER.y, POND_RADIUS + 1.5))
+
+
+func _add_stars() -> void:
+	var transforms: Array[Transform3D] = []
+	var colors: Array[Color] = []
+	for i in STAR_COUNT:
+		var direction := Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0.12, 1.0), _rng.randf_range(-1, 1)).normalized()
+		var size := _rng.randf_range(0.25, 0.7)
+		transforms.append(MeshUtil.xf(direction * 210.0, Vector3.ONE * size))
+		colors.append(Color(1, 1, 1).lerp(Color(1.0, 0.9, 0.75), _rng.randf()))
+	_stars = _add_multimesh(MeshUtil.sphere(1.0, 4, 2), transforms, colors)
+	_star_material = StandardMaterial3D.new()
+	_star_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_star_material.vertex_color_use_as_albedo = true
+	_star_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_star_material.set("disable_fog", true)
+	_stars.material_override = _star_material
+	_stars.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_stars.visible = false
+
+
+## Glowing fireflies drifting over the grove at night.
+func _add_fireflies() -> void:
+	_fireflies = CPUParticles3D.new()
+	_fireflies.amount = 36
+	_fireflies.lifetime = 5.0
+	_fireflies.preprocess = 5.0
+	_fireflies.emitting = false
+	_fireflies.mesh = MeshUtil.sphere(0.06, 5, 3)
+	var glow := StandardMaterial3D.new()
+	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	glow.albedo_color = Color(1.0, 0.95, 0.45)
+	_fireflies.material_override = glow
+	_fireflies.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	var grove := terrain.grove_rect
+	_fireflies.emission_box_extents = Vector3(grove.size.x / 2.0, 1.2, grove.size.y / 2.0)
+	_fireflies.position = Vector3(grove.get_center().x, terrain.height_at(grove.get_center().x, grove.get_center().y) + 1.6, grove.get_center().y)
+	_fireflies.gravity = Vector3.ZERO
+	_fireflies.direction = Vector3.UP
+	_fireflies.spread = 180.0
+	_fireflies.initial_velocity_min = 0.1
+	_fireflies.initial_velocity_max = 0.4
+	_fireflies.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var blink := Curve.new()
+	blink.add_point(Vector2(0.0, 0.0))
+	blink.add_point(Vector2(0.2, 1.0))
+	blink.add_point(Vector2(0.8, 1.0))
+	blink.add_point(Vector2(1.0, 0.0))
+	_fireflies.scale_amount_curve = blink
+	add_child(_fireflies)
 
 
 ## A lone mountain far beyond the badlands with a warm light at its top: Firstlight,

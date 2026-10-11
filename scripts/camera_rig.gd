@@ -20,6 +20,7 @@ var third_distance := 6.0
 var mouse_sensitivity := 0.0032
 var touch_sensitivity := 0.006
 
+var _shake := 0.0
 var showcase := false  ## Slowly circles the target (behind the title screen).
 var camera: Camera3D
 var _arm: SpringArm3D
@@ -40,6 +41,11 @@ func _ready() -> void:
 	camera.far = 260.0
 	_arm.add_child(camera)
 	camera.make_current()
+
+
+## Briefly shakes the view, e.g. when the active member is hit.
+func shake(strength: float) -> void:
+	_shake = maxf(_shake, strength)
 
 
 func cycle_mode() -> void:
@@ -110,6 +116,11 @@ func _process(delta: float) -> void:
 		global_position = global_position.lerp(focus, clampf(1.0 - exp(-10.0 * delta), 0.0, 1.0))
 	rotation = Vector3(pitch, yaw, 0.0)
 	_apply_arm()
+	# Shake: jiggle the view for a moment, fading out
+	_shake = maxf(_shake - delta, 0.0)
+	var amount := _shake * _shake * 0.6
+	camera.h_offset = randf_range(-amount, amount)
+	camera.v_offset = randf_range(-amount, amount)
 
 
 ## Sets how far behind the focus point the camera sits for the current view.

@@ -4,7 +4,7 @@ extends Node3D
 
 const WORLD_HALF := 60.0  ## Half the width of the play area, in metres.
 const CAMP_RADIUS := 7.0
-const DAY_LENGTH := 300.0  ## Seconds for a full day and night.
+const DAY_LENGTH := 720.0  ## Seconds for a full day and night (12 minutes).
 const START_TIME := 0.3  ## 0 = midnight, 0.25 = dawn, 0.5 = noon, 0.75 = dusk.
 const BOAR_COUNT := 8
 const BOAR_RESPAWN_TIME := 45.0
@@ -12,6 +12,10 @@ const ACTION_RANGE := 1.3  ## Largest gap (metres) between a member and somethin
 const HUNGRY_WARNING := 25.0
 const GROVE_RECT := Rect2(25, -60, 35, 35)  ## x, z, width, depth
 const GROVE_GATE := Vector2(25, -42)
+const ITEM_COLORS := {
+	"berries": Color(0.85, 0.12, 0.2), "fruit": Color(0.98, 0.6, 0.16), "meat": Color(0.8, 0.35, 0.3),
+	"sticks": Color(0.5, 0.34, 0.2), "stones": Color(0.6, 0.58, 0.55),
+}
 
 var members: Array[FamilyMember] = []
 var boars: Array[Boarcupine] = []
@@ -107,6 +111,7 @@ func _process(delta: float) -> void:
 	_check_hunger()
 	if active:
 		_glow.global_position = active.global_position + Vector3.UP * 2.2
+		_update_compass()
 	_hud.show_hint(_hint_text())
 
 
@@ -200,7 +205,8 @@ func _build_world() -> void:
 	_terrain = Terrain.new()
 	_terrain.half_size = WORLD_HALF
 	_terrain.grove_rect = GROVE_RECT
-	_terrain.flat_spots = [Vector3(0, 0, CAMP_RADIUS + 2.0), Vector3(GROVE_GATE.x, GROVE_GATE.y, 5.0)]
+	_terrain.flat_spots = [Vector3(0, 0, CAMP_RADIUS + 2.0), Vector3(GROVE_GATE.x, GROVE_GATE.y, 5.0),
+		Vector3(Scenery.POND_CENTER.x, Scenery.POND_CENTER.y, Scenery.POND_RADIUS + 1.5)]
 	add_child(_terrain)
 	_terrain.build(_rng.randi())
 	_scenery = Scenery.new()
@@ -270,6 +276,9 @@ func _spawn_family() -> void:
 		add_child(member)
 		members.append(member)
 		member.downed.connect(_on_member_downed.bind(member))
+		member.hurt.connect(func() -> void:
+			if member == active:
+				_rig.shake(0.35))
 
 
 func _spawn_resources() -> void:
@@ -407,7 +416,7 @@ func _advance_time(delta: float) -> void:
 	for boar in boars:
 		boar.aggressive = night
 	_update_lighting()
-	_hud.update_day(day, _phase_name(), night)
+	_hud.update_day(day, _phase_name(), time_of_day)
 
 
 ## Moves the sun across the sky and tints the sky, light and fog for the time of day.
@@ -424,6 +433,7 @@ func _update_lighting() -> void:
 	_moon.visible = darkness > 0.0
 	_glow.light_energy = darkness * 1.4
 	_glow.visible = darkness > 0.05  # A light costs extra drawing work, so only use it at night
+	_scenery.set_darkness(darkness)
 	_sky_material.sky_top_color = _palette.sky_top.sample(t)
 	_sky_material.sky_horizon_color = _palette.sky_horizon.sample(t)
 	_sky_material.ground_horizon_color = _palette.sky_horizon.sample(t).darkened(0.2)
@@ -483,6 +493,21 @@ func _check_hunger() -> void:
 			_hungry_warned[member] = true
 		elif member.hunger > HUNGRY_WARNING + 15.0:
 			_hungry_warned[member] = false
+
+
+## Points the compass at the cave and the far peak.
+func _update_compass() -> void:
+	var me := active.global_position
+	var markers: Array[Dictionary] = [
+		{"angle": _bearing(Vector3.ZERO - me), "icon": "home", "distance": _flat_distance(me, Vector3.ZERO)},
+		{"angle": _bearing(Scenery.FIRSTLIGHT_POSITION - me), "icon": "star"},
+	]
+	_hud.compass.update(_bearing(_rig.forward()), markers)
+
+
+## Compass angle of a direction: 0 = north (-Z), clockwise.
+func _bearing(direction: Vector3) -> float:
+	return atan2(direction.x, -direction.z)
 
 
 func _flat_distance(a: Vector3, b: Vector3) -> float:
@@ -581,6 +606,7 @@ func _do_action() -> void:
 	match target.kind:
 		"boar":
 			(node as Boarcupine).take_hit(active.strength, active)
+			Effects.burst(self, node.global_position + Vector3.UP * 0.8, Color(0.95, 0.9, 0.75), 6, 2.5)
 		"revive":
 			var member := node as FamilyMember
 			member.revive(member.max_health * 0.3)
@@ -589,6 +615,7 @@ func _do_action() -> void:
 			var result := (node as ResourceNode).interact(active)
 			if result.has("item"):
 				GameState.add_item(result.item, result.amount)
+				Effects.burst(self, node.global_position + Vector3.UP * 1.0, ITEM_COLORS.get(result.item, Color.WHITE))
 				_float_text(node.global_position + Vector3.UP * 1.8,
 					"+%d %s" % [result.amount, GameState.ITEM_NAMES[result.item]], Color(1, 0.95, 0.6))
 			if result.has("message"):

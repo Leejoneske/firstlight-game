@@ -21,10 +21,13 @@ var look_pad: TouchLook
 var touch_ui := false
 
 var _cards_box: HBoxContainer
-var _day_label: Label
-var _inventory_label: Label
+var _day_dial: DayDial
+var _inventory_bar: InventoryBar
+var compass: Compass
 var _hint_label: Label
+var _hint_pill: PanelContainer
 var _toast_label: Label
+var _toast_panel: PanelContainer
 var _help_label: Label
 var _fade: ColorRect
 var _action_button: TouchScreenButton
@@ -68,25 +71,51 @@ func _ready() -> void:
 	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info.anchor_left = 1.0
 	info.anchor_right = 1.0
-	info.offset_left = -520
+	info.offset_left = -560
 	info.offset_right = -16
 	info.offset_top = 14
 	root.add_child(info)
-	_day_label = _make_label(28, HORIZONTAL_ALIGNMENT_RIGHT)
-	info.add_child(_day_label)
-	_inventory_label = _make_label(20, HORIZONTAL_ALIGNMENT_RIGHT)
-	info.add_child(_inventory_label)
+	info.alignment = BoxContainer.ALIGNMENT_BEGIN
+	info.add_theme_constant_override("separation", 8)
+	_day_dial = DayDial.new()
+	_day_dial.size_flags_horizontal = Control.SIZE_SHRINK_END
+	info.add_child(_day_dial)
+	_inventory_bar = InventoryBar.new()
+	_inventory_bar.size_flags_horizontal = Control.SIZE_SHRINK_END
+	info.add_child(_inventory_bar)
 
+	compass = Compass.new()
+	compass.anchor_left = 0.5
+	compass.anchor_right = 0.5
+	compass.offset_left = -Compass.WIDTH / 2.0
+	compass.offset_right = Compass.WIDTH / 2.0
+	compass.offset_top = 14
+	root.add_child(compass)
+
+	# Hint: a pill above the bottom of the screen ("Pick berries")
+	_hint_pill = _make_panel(Color(0.1, 0.07, 0.05, 0.7), 22)
+	_hint_pill.anchor_left = 0.5
+	_hint_pill.anchor_right = 0.5
+	_hint_pill.anchor_top = 1.0
+	_hint_pill.anchor_bottom = 1.0
+	_hint_pill.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_hint_pill.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_hint_pill.offset_bottom = -44
+	root.add_child(_hint_pill)
 	_hint_label = _make_label(24, HORIZONTAL_ALIGNMENT_CENTER)
-	_place_full_width(_hint_label, 1.0, -78, -44)
-	root.add_child(_hint_label)
+	_hint_label.add_theme_color_override("font_color", Color(1, 0.94, 0.78))
+	_hint_pill.add_child(_hint_label)
 
-	_toast_label = _make_label(24, HORIZONTAL_ALIGNMENT_CENTER)
-	_toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_place_full_width(_toast_label, 0.0, 110, 180)
-	_toast_label.offset_left = 120
-	_toast_label.offset_right = -120
-	root.add_child(_toast_label)
+	# Messages: a banner under the compass
+	_toast_panel = _make_panel(Color(0.16, 0.11, 0.07, 0.85), 16)
+	_toast_panel.anchor_left = 0.5
+	_toast_panel.anchor_right = 0.5
+	_toast_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_toast_panel.offset_top = 82
+	_toast_panel.visible = false
+	root.add_child(_toast_panel)
+	_toast_label = _make_label(22, HORIZONTAL_ALIGNMENT_CENTER)
+	_toast_panel.add_child(_toast_label)
 
 	_help_label = _make_label(15, HORIZONTAL_ALIGNMENT_LEFT)
 	_help_label.text = KEYBOARD_HELP
@@ -100,13 +129,13 @@ func _ready() -> void:
 	_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.add_child(_fade)
 
-	_action_button = _make_touch_button("ACT", 150, Color(0.95, 0.75, 0.3, 0.35))
+	_action_button = _make_touch_button("ACT", 150, Color(0.95, 0.72, 0.3), "hand")
 	_action_button.pressed.connect(func() -> void: action_pressed.emit())
-	_eat_button = _make_touch_button("EAT", 100, Color(0.9, 0.45, 0.35, 0.35))
+	_eat_button = _make_touch_button("EAT", 100, Color(0.9, 0.42, 0.35), "food")
 	_eat_button.pressed.connect(func() -> void: eat_pressed.emit())
-	_switch_button = _make_touch_button("SWAP", 100, Color(0.45, 0.7, 0.95, 0.35))
+	_switch_button = _make_touch_button("SWAP", 100, Color(0.42, 0.66, 0.95), "swap")
 	_switch_button.pressed.connect(func() -> void: switch_next_pressed.emit())
-	_view_button = _make_touch_button("VIEW", 90, Color(0.75, 0.75, 0.75, 0.35))
+	_view_button = _make_touch_button("VIEW", 90, Color(0.7, 0.72, 0.75), "eye")
 	_view_button.pressed.connect(func() -> void: view_pressed.emit())
 
 	_pause_button = _make_button("II", 26)
@@ -115,8 +144,8 @@ func _ready() -> void:
 	_pause_button.anchor_right = 1.0
 	_pause_button.offset_left = -84
 	_pause_button.offset_right = -16
-	_pause_button.offset_top = 100
-	_pause_button.offset_bottom = 160
+	_pause_button.offset_top = 154
+	_pause_button.offset_bottom = 210
 	_pause_button.pressed.connect(func() -> void: set_paused(true))
 	root.add_child(_pause_button)
 
@@ -151,7 +180,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if _toast_time > 0.0:
 		_toast_time -= delta
-		_toast_label.modulate.a = clampf(_toast_time / 0.5, 0.0, 1.0)
+		_toast_panel.modulate.a = clampf(_toast_time / 0.5, 0.0, 1.0)
+		_toast_panel.visible = _toast_time > 0.0
 
 
 func setup(members: Array[FamilyMember]) -> void:
@@ -174,35 +204,35 @@ func set_touch_ui(enabled: bool) -> void:
 	for button in _touch_buttons():
 		button.visible = enabled
 	_help_label.visible = not enabled and not (_title_screen and _title_screen.visible)
-	_hint_label.offset_top = -190 if enabled else -78
-	_hint_label.offset_bottom = -156 if enabled else -44
+	_hint_pill.offset_bottom = -170.0 if enabled else -44.0
 
 
 func toggle_touch_ui() -> void:
 	set_touch_ui(not touch_ui)
 
 
-func update_day(day: int, phase: String, night: bool) -> void:
-	_day_label.text = "Day %d  -  %s" % [day, phase]
-	_day_label.add_theme_color_override("font_color", Color(0.7, 0.8, 1.0) if night else Color(1, 0.95, 0.8))
+func update_day(day: int, phase: String, time_of_day: float) -> void:
+	_day_dial.set_time(day, phase, time_of_day)
 
 
 func update_inventory() -> void:
-	var parts: PackedStringArray = []
-	for item: String in GameState.ITEM_NAMES:
-		parts.append("%s %d" % [GameState.ITEM_NAMES[item], GameState.inventory[item]])
-	_inventory_label.text = "   ".join(parts)
+	_inventory_bar.refresh()
 
 
 func show_hint(text: String) -> void:
 	if text != "" and not touch_ui:
-		text = "[Space]  " + text
-	_hint_label.text = text
+		text = "Space  ·  " + text
+	_hint_pill.visible = text != "" and not _title_screen.visible
+	if _hint_label.text != text:
+		_hint_label.text = text
+		_hint_pill.reset_size()  # Shrink the pill to fit the new text
 
 
 func toast(text: String) -> void:
 	_toast_label.text = text
-	_toast_label.modulate.a = 1.0
+	_toast_panel.visible = true
+	_toast_panel.modulate.a = 1.0
+	_toast_panel.reset_size()
 	_toast_time = TOAST_TIME
 
 
@@ -223,7 +253,7 @@ func _layout_touch_buttons() -> void:
 		var diameter := (button.shape as CircleShape2D).radius * 2.0
 		var x := view.x - from_corner.x if buttons_on_right else from_corner.x - diameter
 		button.position = Vector2(x, view.y - from_corner.y)
-	_view_button.position = Vector2(view.x - 100, 176)
+	_view_button.position = Vector2(view.x - 100, 222)
 
 
 func _apply_settings() -> void:
@@ -425,21 +455,39 @@ func _place_full_width(control: Control, anchor_y: float, top: float, bottom: fl
 	control.offset_bottom = bottom
 
 
-func _make_touch_button(text: String, diameter: int, color: Color) -> TouchScreenButton:
+func _make_touch_button(text: String, diameter: int, color: Color, icon := "") -> TouchScreenButton:
 	var button := TouchScreenButton.new()
-	button.texture_normal = _circle_texture(diameter, color)
-	button.texture_pressed = _circle_texture(diameter, color.lightened(0.35))
+	# The texture is invisible and only sets the button's size; ButtonFace draws the look
+	button.texture_normal = _circle_texture(diameter, Color(color, 0.0))
 	var shape := CircleShape2D.new()
 	shape.radius = diameter / 2.0
 	button.shape = shape
 	button.visibility_mode = TouchScreenButton.VISIBILITY_ALWAYS
-	var label := _make_label(22, HORIZONTAL_ALIGNMENT_CENTER)
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.size = Vector2(diameter, diameter)
-	label.text = text
-	button.add_child(label)
+	var face := ButtonFace.new()
+	face.button = button
+	face.icon = icon
+	face.caption = text
+	face.color = Color(color, 1.0)
+	face.diameter = diameter
+	button.add_child(face)
 	add_child(button)
 	return button
+
+
+func _make_panel(color: Color, radius: int) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color = color
+	style.set_corner_radius_all(radius)
+	style.content_margin_left = 22
+	style.content_margin_right = 22
+	style.content_margin_top = 8
+	style.content_margin_bottom = 8
+	style.border_color = Color(1, 0.86, 0.5, 0.35)
+	style.set_border_width_all(1)
+	panel.add_theme_stylebox_override("panel", style)
+	return panel
 
 
 func _circle_texture(diameter: int, color: Color) -> Texture2D:

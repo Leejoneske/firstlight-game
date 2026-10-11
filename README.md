@@ -13,12 +13,13 @@ What's in this build:
   - **Krag** (dad): strong and slow, smashes boulders, hits hard
   - **Zee** (teen daughter): fast and fragile, climbs tall trees for fruit
 - **Gathering:** berry bushes, trees (sticks), rocks (stones), boulders (Krag only), tall fruit trees (Zee only)
-- **A hidden grove** full of food, sealed off behind a boulder only Krag can smash
+- **A hidden grove** with an oasis pond and fireflies at night, full of food, sealed off behind a boulder only Krag can smash
 - **Hunger and health.** Eat from the family's shared supplies. Rest at the cave to heal.
-- **Day and night.** Nights are dark, and creatures spot you from farther away.
+- **Day and night** (a full day lasts 12 minutes). Nights are dark and starry, and creatures spot you from farther away.
 - **The Boarcupine:** a spiky boar that charges in a straight line. Dodge so it rams something, then hit it while it's dizzy for meat. Hitting it when it isn't dizzy hurts!
 - **Knockouts:** a downed member can be helped up by the other one. If everyone goes down, the family wakes up at the cave next morning and loses half their supplies.
-- **Touch controls** (joystick plus buttons), **keyboard** and **gamepad**
+- **Touch controls** (joystick plus icon buttons), **keyboard** and **gamepad**
+- **Interface:** family cards with health and food bars, a sun/moon day dial, supplies as icons, and a compass pointing to the cave and the far peak
 
 All models are placeholders built from simple shapes in code. To replace any of them with your own Blender model, drop a `.glb` file into `models/`. See **[docs/ART_GUIDE.md](docs/ART_GUIDE.md)** for names, sizes and export settings.
 
